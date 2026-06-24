@@ -1,0 +1,195 @@
+:root {
+  --blue: #4f46e5;           /* indigo-600 accent */
+  --blue-soft: #eef2ff;      /* tint for hovers/highlights */
+  --bg: #f6f7fb;             /* soft cool gray */
+  --surface: #ffffff;
+  --surface-2: #f7f8fc;
+  --text: #0f172a;           /* slate-900 */
+  --muted: #64748b;          /* slate-500 */
+  --border: #e7e9f0;
+  --border-strong: #d4d8e3;
+  --input-bg: #ffffff;
+  --label: #475569;
+  --th-bg: #f3f4fb;
+  --th-text: #475569;
+  --row-border: #eef0f6;
+  --row-hover: #f6f7fc;
+  --btn-bg: #ffffff;
+  --btn-text: #1e293b;
+  --btn-hover: #f3f4fb;
+  --topbar-bg: #1e1b4b;      /* deep indigo, ties to the accent */
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  --flash-success-bg: #e7f7ee; --flash-success-fg: #15803d;
+  --flash-error-bg: #fdeaea;  --flash-error-fg: #b91c1c;
+  --rejected-bg: #fdf2f4; --rejected-bg-hover: #fbe7eb; --rejected-fg: #be123c;
+  --rejected-border: #f6cdd6;
+  --focus: #c7d2fe;
+}
+html[data-theme="dark"] {
+  --blue: #818cf8;           /* indigo-400, readable on dark */
+  --blue-soft: #232a44;
+  --bg: #0b0f1a;             /* deep slate-navy */
+  --surface: #151b2b;
+  --surface-2: #1a2133;
+  --text: #e6e9f2;
+  --muted: #97a2b8;
+  --border: #283246;
+  --border-strong: #3a465f;
+  --input-bg: #0e1320;
+  --label: #c4ccde;
+  --th-bg: #1a2133;
+  --th-text: #c4ccde;
+  --row-border: #232c40;
+  --row-hover: #1e2740;
+  --btn-bg: #232c42;
+  --btn-text: #e6e9f2;
+  --btn-hover: #2c3650;
+  --topbar-bg: #10152a;
+  --shadow: 0 1px 2px rgba(0,0,0,.25), 0 1px 3px rgba(0,0,0,.3);
+  --flash-success-bg: #11301f; --flash-success-fg: #6ee7a8;
+  --flash-error-bg: #351418;  --flash-error-fg: #fda4af;
+  --rejected-bg: #2e1419; --rejected-bg-hover: #3c1a21; --rejected-fg: #fb7185;
+  --rejected-border: #6b1f2c;
+  --focus: #3730a3;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Helvetica Neue", Arial, sans-serif;
+       color: var(--text); background: var(--bg); }
+
+.topbar { background: var(--topbar-bg); color: #fff; padding: 14px 24px;
+          display: flex; align-items: center; justify-content: space-between; }
+.brand { color: #fff; font-weight: 700; text-decoration: none; font-size: 1.1rem; }
+.topbar nav { display: flex; align-items: center; }
+.topbar nav a { color: #cbd5e1; text-decoration: none; margin-left: 18px; }
+.topbar nav a:hover { color: #fff; }
+.theme-toggle { margin-left: 18px; background: transparent; border: 1px solid #374151;
+                color: #cbd5e1; cursor: pointer; font-size: 1rem; line-height: 1;
+                padding: 6px 10px; border-radius: 7px; }
+.theme-toggle:hover { color: #fff; border-color: #6b7280; }
+
+.container { max-width: 860px; margin: 28px auto; padding: 0 20px 60px; }
+h1 { margin: 0 0 8px; }
+.muted { color: var(--muted); line-height: 1.5; }
+a { color: var(--blue); }
+code { background: var(--surface-2); color: var(--text); padding: 1px 5px;
+       border-radius: 4px; border: 1px solid var(--border); font-size: .88em; }
+
+fieldset { border: 1px solid var(--border); border-radius: 10px; margin: 18px 0;
+           padding: 16px 18px; background: var(--surface); box-shadow: var(--shadow); }
+legend { font-weight: 700; padding: 0 8px; color: var(--blue); }
+label { display: block; font-size: .9rem; color: var(--label); margin-bottom: 10px; }
+input, textarea, select {
+  width: 100%; padding: 9px 11px; margin-top: 4px; border: 1px solid var(--border-strong);
+  border-radius: 7px; font: inherit; background: var(--input-bg); color: var(--text);
+}
+textarea { resize: vertical; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--focus); border-color: var(--blue); }
+.field-group { margin-bottom: 10px; }
+.field-group label, .paste-field-label { margin-bottom: 0; }
+.paste-field { display: block; position: relative; margin-top: 4px; }
+.paste-field input, .paste-field textarea { margin-top: 0; padding-right: 42px; }
+.paste-btn {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  width: 30px; height: 30px; padding: 6px; border: 0; border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted); background: transparent; cursor: pointer;
+}
+.paste-btn:hover { color: var(--blue); background: var(--blue-soft); }
+.paste-btn:focus-visible { outline: 2px solid var(--focus); color: var(--blue); }
+.paste-btn.is-error { color: var(--flash-error-fg); background: var(--flash-error-bg); }
+.paste-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor;
+                  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.paste-field-textarea .paste-btn { top: 7px; transform: none; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+        margin-bottom: 12px; background: var(--surface-2); }
+.row { position: relative; }
+
+.btn { display: inline-block; cursor: pointer; border: 1px solid var(--border-strong);
+       background: var(--btn-bg); color: var(--btn-text); padding: 8px 14px; border-radius: 7px;
+       font: inherit; text-decoration: none; }
+.btn:hover { background: var(--btn-hover); }
+.btn-primary { background: var(--blue); color: #fff; border-color: var(--blue);
+               font-weight: 600; margin-top: 14px; padding: 11px 20px; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-remove { color: var(--rejected-fg); border-color: var(--rejected-border);
+              background: transparent; margin-top: 6px; }
+
+.flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+.flash-success { background: var(--flash-success-bg); color: var(--flash-success-fg); }
+.flash-error   { background: var(--flash-error-bg);  color: var(--flash-error-fg); }
+
+/* Resumes list */
+.searchbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin: 14px 0 6px; }
+/* min-width:0 lets the input shrink below its intrinsic width so the Search
+   button never gets pushed off the edge on narrow screens. */
+.search-paste-field { flex: 1 1 180px; min-width: 0; margin-top: 0; }
+.searchbar input[type="search"] { min-width: 0; margin-top: 0; }
+/* The primary button carries a margin-top for form layouts; cancel it here and
+   let the button match the input's height so they align in the search row. */
+.searchbar .btn { margin-top: 0; padding-top: 0; padding-bottom: 0;
+                  display: inline-flex; align-items: center; white-space: nowrap; }
+/* On narrow viewports the fixed-layout table can't shrink without crushing its
+   columns into vertical letters, so let it keep its size and scroll sideways. */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch;
+              border-radius: 10px; box-shadow: var(--shadow); }
+table.resumes { width: 100%; min-width: 760px; border-collapse: collapse;
+                background: var(--surface); border: 1px solid var(--border);
+                border-radius: 10px; overflow: hidden;
+                font-size: .92rem; table-layout: fixed; box-shadow: none; }
+table.resumes th, table.resumes td { text-align: left; padding: 10px 12px;
+                border-bottom: 1px solid var(--row-border); vertical-align: top;
+                overflow-wrap: anywhere; }
+table.resumes thead th { background: var(--th-bg); color: var(--th-text); font-weight: 700;
+                white-space: nowrap; }
+table.resumes tbody tr:last-child td { border-bottom: none; }
+table.resumes tbody tr:hover { background: var(--row-hover); }
+table.resumes a { color: var(--blue); text-decoration: none; white-space: nowrap; }
+table.resumes a:hover { text-decoration: underline; }
+.nowrap { white-space: nowrap; }
+table.resumes tr.is-rejected { background: var(--rejected-bg); }
+table.resumes tr.is-rejected:hover { background: var(--rejected-bg-hover); }
+.progress-form { margin: 0; }
+.progress-select { margin-top: 0; padding: 5px 8px; width: auto; min-width: 92px; }
+.progress-select.rejected { color: var(--rejected-fg); font-weight: 600; border-color: var(--rejected-border); }
+.note-form { margin: 0; }
+.note-input { margin-top: 0; padding: 5px 8px; width: 100%; font-size: .9rem; }
+.delete-form { margin: 0; }
+.btn-sm { margin-top: 0; padding: 5px 10px; font-size: .85rem; white-space: nowrap; }
+
+/* Profiles bar */
+.profiles-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+                margin: 8px 0 12px; padding: 12px 14px; background: var(--surface);
+                border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.profiles-bar .inline { display: inline-flex; align-items: center; gap: 8px; margin: 0;
+                        font-weight: 600; color: var(--label); }
+.profiles-bar select { width: auto; margin-top: 0; min-width: 160px; }
+.inline-form { display: inline-flex; flex-wrap: wrap; gap: 8px; margin: 0; align-items: center; }
+.inline-form .new-name { width: auto; min-width: 170px; margin-top: 0; }
+.profiles-bar .btn { margin-top: 0; }
+.profiles-bar form:last-of-type { margin-left: auto; }
+.profile-actions { display: grid; grid-template-columns: 1fr; gap: 10px;
+                   margin-top: -4px; margin-bottom: 18px; background: var(--surface-2);
+                   box-shadow: none; }
+.profile-actions .inline-form { display: grid; grid-template-columns: minmax(180px, 260px) auto;
+                                justify-content: start; align-items: center; }
+.profile-actions form:last-of-type { margin-left: 0; }
+
+/* Narrow screens: stack two-column form rows and let the profiles bar wrap
+   cleanly so nothing gets squeezed or clipped. */
+@media (max-width: 640px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .topbar { padding: 12px 16px; }
+  .topbar nav a { margin-left: 12px; }
+  .container { padding: 0 14px 48px; }
+  .profiles-bar form:last-of-type { margin-left: 0; }
+  .profiles-bar select,
+  .profiles-bar .inline { width: 100%; }
+  .profiles-bar .inline select { flex: 1; min-width: 0; }
+  .profile-actions { gap: 10px; }
+  .profile-actions .inline-form,
+  .profile-actions .new-name,
+  .profile-actions .btn { width: 100%; }
+  .profile-actions .inline-form { grid-template-columns: 1fr; }
+}

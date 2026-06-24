@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}My Profile — Resume Generator{% endblock %}
+{% block content %}
+<h1>My Profile</h1>
+
+<div class="profiles-bar">
+  <label class="inline">Name:
+    <select onchange="location.href='{{ url_for('profile') }}?id=' + encodeURIComponent(this.selectedOptions[0].dataset.profileId)">
+      {% for n in names %}
+      <option data-profile-id="{{ n.id }}" {{ 'selected' if n.name == profile.name }}>{{ n.name }}</option>
+      {% endfor %}
+      {% if not profiles %}<option>(no profiles yet)</option>{% endif %}
+    </select>
+  </label>
+  {% if current %}
+  <form method="post" action="{{ url_for('profile_delete') }}" class="inline-form"
+        onsubmit="return confirm('Delete this entire profile? This cannot be undone.');">
+    <input type="hidden" name="profile_id" value="{{ current }}">
+    <button type="submit" class="btn btn-remove">Delete profile</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="profiles-bar profile-actions">
+  <form method="post" action="{{ url_for('profile_new') }}" class="inline-form">
+    <input type="text" name="new_name" placeholder="New user name..." class="new-name">
+    <button type="submit" class="btn">+ New user</button>
+  </form>
+</div>
+
+<p class="muted">
+  These are your fixed facts. You can choose whether generated resumes use profile
+  company names or OpenAI-generated company names. Dates and locations come
+  from the experience entries below. Dates accept <code>MM/YYYY</code> (e.g.
+  <code>05/2023</code>), a plain year, or <code>Present</code>.
+</p>
+
+<form method="post" action="{{ url_for('profile') }}">
+  <input type="hidden" name="profile_id" value="{{ current }}">
+  <fieldset>
+    <legend>Personal</legend>
+    <div class="grid2">
+      <label>Full name <input name="name" value="{{ profile.name }}" placeholder="e.g. Spencer Aguas"></label>
+      <label>Email <input name="email" value="{{ profile.email }}"></label>
+      <label>Phone <input name="phone" value="{{ profile.phone }}"></label>
+      <label>Location <input name="location" value="{{ profile.location }}" placeholder="City, Country"></label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Links</legend>
+    <div id="links">
+      {% for link in profile.links %}
+      <div class="row grid2">
+        <label>Label <input name="link_label" value="{{ link.label }}"></label>
+        <label>URL <input name="link_url" value="{{ link.url }}"></label>
+        <button type="button" class="btn btn-remove" onclick="this.closest('.row').remove()">✕</button>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn" onclick="addLink()">+ Add link</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Companies (most recent first)</legend>
+    <p class="muted" style="margin-top:0">Enter company facts here. On Generate, choose whether to use these company names or OpenAI-generated names.</p>
+    <div id="companies">
+      {% for c in profile.companies %}
+      <div class="row card">
+        <div class="grid2">
+          <label>Company name <input name="comp_name" value="{{ c.name }}"></label>
+          <label>Location <input name="comp_location" value="{{ c.location }}"></label>
+          <label>Start (MM/YYYY) <input name="comp_start" value="{{ c.start }}"></label>
+          <label>End (MM/YYYY or Present) <input name="comp_end" value="{{ c.end }}"></label>
+        </div>
+        <button type="button" class="btn btn-remove" onclick="this.closest('.row').remove()">Remove company</button>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn" onclick="addCompany()">+ Add company</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Education</legend>
+    <p class="muted" style="margin-top:0">The AI chooses a degree name that fits the job description.</p>
+    <div id="education">
+      {% for ed in profile.education %}
+      <div class="row card">
+        <div class="grid2">
+          <label>University <input name="edu_university" value="{{ ed.university }}"></label>
+          <label>Location <input name="edu_location" value="{{ ed.location }}"></label>
+          <label>Start year <input name="edu_start" value="{{ ed.start }}"></label>
+          <label>End year <input name="edu_end" value="{{ ed.end }}"></label>
+        </div>
+        <button type="button" class="btn btn-remove" onclick="this.closest('.row').remove()">Remove</button>
+      </div>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn" onclick="addEducation()">+ Add education</button>
+  </fieldset>
+
+  <button type="submit" class="btn btn-primary">Save profile</button>
+</form>
+
+<template id="tpl-link">
+  <div class="row grid2">
+    <label>Label <input name="link_label"></label>
+    <label>URL <input name="link_url"></label>
+    <button type="button" class="btn btn-remove" onclick="this.closest('.row').remove()">✕</button>
+  </div>
+</template>
+<template id="tpl-comp">
+  <div class="row card">
+    <div class="grid2">
+      <label>Company name <input name="comp_name"></label>
+      <label>Location <input name="comp_location"></label>
+      <label>Start (MM/YYYY) <input name="comp_start"></label>
+      <label>End (MM/YYYY or Present) <input name="comp_end"></label>
+    </div>
+    <button type="button" class="btn btn-remove" onclick="this.closest('.row').remove()">Remove company</button>
+  </div>
+</template>
+<template id="tpl-edu">
+  <div class="row card">
+    <div class="grid2">
+      <label>University <input name="edu_university"></label>
+      <label>Location <input name="edu_location"></label>
+      <label>Start year <input name="edu_start"></label>
+      <label>End year <input name="edu_end"></label>
+    </div>
+    <button type="button" class="btn btn-remove" onclick="this.closest('.row').remove()">Remove</button>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function addFrom(tplId, containerId) {
+    document.getElementById(containerId)
+      .appendChild(document.getElementById(tplId).content.cloneNode(true));
+  }
+  const addLink = () => addFrom('tpl-link', 'links');
+  const addCompany = () => addFrom('tpl-comp', 'companies');
+  const addEducation = () => addFrom('tpl-edu', 'education');
+</script>
+{% endblock %}

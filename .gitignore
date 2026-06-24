@@ -1,0 +1,27 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local user/profile data
+.active_profile
+profile.json
+profile.migrated.json
+profiles/
+
+# Generated resumes and job descriptions
+resumes/
+output/
+
+# Generated logs
+resumes_log*.xlsx
+
+# Local agent/tooling state
+.agents/
+.codex/

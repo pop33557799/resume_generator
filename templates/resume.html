@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+{# Resume layout — Bitter/Roboto format from resume_format.py.
+   Order per the reference prompt: Summary, Skills, Professional Experience, Education. #}
+{# The fill color is written as a literal attribute on the <path>, because in
+   WeasyPrint neither a CSS `fill` on the <svg> nor `currentColor` reliably
+   reaches the path. Default is the DodgerBlue accent; pass gray for meta rows. #}
+{% macro icon(kind, color='#1E90FF') -%}
+  {%- if kind == 'phone' -%}
+    <svg class="ic" viewBox="0 0 512 512"><path fill="{{ color }}" d="M164.9 24.6c-7.7-18.6-28-28.5-47.4-23.2l-88 24C12.1 30.2 0 46 0 64C0 311.4 200.6 512 448 512c18 0 33.8-12.1 38.6-29.5l24-88c5.3-19.4-4.6-39.7-23.2-47.4l-96-40c-16.3-6.8-35.2-2.1-46.3 11.6L304.7 368C234.3 334.7 177.3 277.7 144 207.3L193.3 167c13.7-11.2 18.4-30 11.6-46.3l-40-96z"/></svg>
+  {%- elif kind == 'pin' -%}
+    <svg class="ic" viewBox="0 0 384 512"><path fill="{{ color }}" d="M215.7 499.2C267 435 384 279.4 384 192C384 86 298 0 192 0S0 86 0 192c0 87.4 117 243 168.3 307.2c12.3 15.3 35.1 15.3 47.4 0zM192 128a64 64 0 1 1 0 128 64 64 0 1 1 0-128z"/></svg>
+  {%- elif kind == 'calendar' -%}
+    <svg class="ic" viewBox="0 0 448 512"><path fill="{{ color }}" d="M152 24c0-13.3-10.7-24-24-24s-24 10.7-24 24l0 40-40 0C28.7 64 0 92.7 0 128l0 16 0 48L0 448c0 35.3 28.7 64 64 64l320 0c35.3 0 64-28.7 64-64l0-256 0-48 0-16c0-35.3-28.7-64-64-64l-40 0 0-40c0-13.3-10.7-24-24-24s-24 10.7-24 24l0 40L152 64l0-40zM48 192l352 0 0 256c0 8.8-7.2 16-16 16L64 464c-8.8 0-16-7.2-16-16l0-256z"/></svg>
+  {%- endif -%}
+{%- endmacro %}
+<head>
+  <meta charset="utf-8">
+  <title>{{ profile.name }} — Resume</title>
+  <style>
+    @page { size: A4; margin: 0.6in; }
+    * { box-sizing: border-box; }
+    html { background: #f4f4f5; }
+    body { margin: 0; font-family: "Roboto", sans-serif; color: #3E3E3E; }
+
+    /* A4 page is 210mm wide; the on-screen card matches it so the browser
+       preview is identical to the downloaded PDF. */
+    .sheet { background: #fff; max-width: 210mm; margin: 0 auto; padding: 0.6in; }
+    @media screen { .sheet { margin: 24px auto; box-shadow: 0 2px 16px rgba(0,0,0,.12); } }
+
+    /* Header */
+    .name { font-family: "Bitter", serif; font-weight: 700; color: #000;
+            font-size: 25pt; text-transform: uppercase; line-height: 1.05;
+            margin: 0; letter-spacing: .3px; }
+    .subtitle { font-family: "Bitter", serif; font-weight: 700; color: #1E90FF;
+                font-size: 13.5pt; margin: 3pt 0 0; }
+    .contact { font-family: "Roboto", sans-serif; font-weight: 700; color: #3E3E3E;
+               font-size: 9pt; margin: 10pt 0 0; }
+    .contact .item { display: inline-block; white-space: nowrap; vertical-align: middle;
+                     margin-right: 18pt; }
+    .contact a { color: #3E3E3E; text-decoration: none; }
+    .at { color: #1E90FF; font-weight: 700; }
+
+    /* Icons — colored via `color` (currentColor in the SVG path) */
+    .ic { display: inline-block; width: 1em; height: 1em; color: #1E90FF;
+          vertical-align: -0.13em; margin-right: 4pt; }
+    .meta .ic { color: #3E3E3E; width: .92em; height: .92em; }
+
+    /* Section headers */
+    h2 { font-family: "Bitter", serif; font-weight: 700; color: #000;
+         font-size: 13pt; text-transform: uppercase; letter-spacing: .3px;
+         border-bottom: 2pt solid #000; padding-bottom: 4pt; margin: 19pt 0 10pt;
+         break-after: avoid; }
+
+    /* Summary */
+    .summary { font-size: 9.5pt; color: #3E3E3E; margin: 0; line-height: 1.55; }
+    .kw { font-weight: 600; color: #1a1a1a; }
+
+    /* Skills — bold tags, each with its own thin underline (sample.pdf style) */
+    .skills-flow { line-height: 2.2; }
+    .skill-tag { display: inline-block; font-family: "Roboto", sans-serif;
+                 font-weight: 700; font-size: 10pt; color: #3E3E3E;
+                 border-bottom: 0.75pt solid #b3b3b3;
+                 /* L/R padding makes the underline extend past the text on both sides */
+                 padding: 0 8pt 2.5pt; margin: 0 10pt 5pt 0; white-space: nowrap; }
+
+    /* Experience / Education — let entries flow across pages (fills the page)
+       but keep each role's heading lines glued to its first bullets, and never
+       split a single bullet across a page break. */
+    .entry { margin: 0 0 13pt; }
+    .entry + .entry { border-top: 1px dashed #cfcfcf; padding-top: 12pt; }
+    .role, .degree, .company, .university, .meta, .desc { break-after: avoid; }
+    .role { font-family: "Bitter", serif; font-weight: 500; color: #000;
+            font-size: 11pt; line-height: 1.2; }
+    .degree { font-family: "Bitter", serif; font-weight: 500; color: #000;
+              font-size: 10.5pt; line-height: 1.2; }
+    .company { font-family: "Roboto", sans-serif; font-weight: 700; color: #1E90FF;
+               font-size: 10.5pt; margin-top: 2pt; }
+    .university { font-family: "Roboto", sans-serif; font-weight: 700; color: #1E90FF;
+                  font-size: 10pt; margin-top: 2pt; }
+    .meta { font-family: "Roboto", sans-serif; color: #3E3E3E; font-size: 8.5pt;
+            margin-top: 3pt; }
+    .meta .item { display: inline-block; white-space: nowrap; vertical-align: middle;
+                  margin-right: 16pt; }
+    .desc { font-size: 9pt; color: #555; font-style: italic; margin-top: 4pt; line-height: 1.4; }
+    .coursework { font-size: 9.5pt; color: #3E3E3E; margin-top: 4pt; }
+
+    ul { margin: 7pt 0 0; padding-left: 15pt; }
+    li { font-size: 9.5pt; color: #3E3E3E; margin-bottom: 4pt; line-height: 1.5;
+         break-inside: avoid; }
+
+    /* Preview toolbar (hidden in PDF) */
+    .toolbar { position: sticky; top: 0; z-index: 10; background: #111827; color: #fff;
+               padding: 12px 20px; display: flex; gap: 12px; align-items: center;
+               justify-content: center; font-family: "Roboto", sans-serif; }
+    .toolbar a { color: #fff; text-decoration: none; background: #2563eb;
+                 padding: 8px 16px; border-radius: 6px; font-weight: 600; }
+    .toolbar a.secondary { background: #374151; }
+    .warnbar { background: #fef3c7; color: #92400e; font-family: "Roboto", sans-serif;
+               font-size: 9pt; padding: 10px 20px; }
+    .warnbar ul { margin: 4px 0; padding-left: 18px; }
+    .warnbar li { color: #92400e; font-size: 9pt; }
+    @media print { .toolbar, .warnbar { display: none; } html { background: #fff; }
+                   .sheet { box-shadow: none; margin: 0; max-width: none; padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <!-- Header -->
+    <header>
+      <h1 class="name">{{ profile.name }}</h1>
+      {% if tailored.subtitle %}<div class="subtitle">{{ tailored.subtitle }}</div>{% endif %}
+      <div class="contact">
+        {% if profile.phone %}<span class="item">{{ icon('phone') }}{{ profile.phone }}</span>{% endif %}
+        {% if profile.email %}<span class="item"><span class="at">@</span><a href="mailto:{{ profile.email }}">{{ profile.email }}</a></span>{% endif %}
+        {% if profile.location %}<span class="item">{{ icon('pin') }}{{ profile.location }}</span>{% endif %}
+        {% for link in profile.links %}{% if link.url %}<span class="item"><a href="{{ link.url }}">{{ link.label or link.url }}</a></span>{% endif %}{% endfor %}
+      </div>
+    </header>
+
+    <!-- Summary -->
+    {% if tailored.summary %}
+    <section>
+      <h2>Summary</h2>
+      <p class="summary">{{ tailored.summary | kw }}</p>
+    </section>
+    {% endif %}
+
+    <!-- Skills -->
+    {% if tailored.skills %}
+    <section>
+      <h2>Skills</h2>
+      <div class="skills-flow">
+        {%- set seen = [] -%}
+        {%- for cat in tailored.skills -%}
+          {%- for s in cat.skills -%}
+            {%- if s|lower not in seen -%}
+              {%- set _ = seen.append(s|lower) -%}
+              <span class="skill-tag">{{ s }}</span>
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endfor -%}
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Professional Experience -->
+    <section>
+      <h2>Professional Experience</h2>
+      {% for e in tailored.experience %}
+      <div class="entry">
+        {% if e.title %}<div class="role">{{ e.title }}</div>{% endif %}
+        <div class="company">{{ e.company }}</div>
+        <div class="meta">
+          {% if e.dates %}<span class="item">{{ icon('calendar', '#3E3E3E') }}{{ e.dates }}</span>{% endif %}
+          {% if e.location %}<span class="item">{{ icon('pin', '#3E3E3E') }}{{ e.location }}</span>{% endif %}
+        </div>
+        {% if e.description %}<div class="desc">{{ e.description }}</div>{% endif %}
+        {% if e.bullets %}
+        <ul>{% for b in e.bullets %}<li>{{ b | kw }}</li>{% endfor %}</ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <!-- Education -->
+    {% if tailored.education %}
+    <section>
+      <h2>Education</h2>
+      {% for ed in tailored.education %}
+      <div class="entry">
+        {% if ed.degree %}<div class="degree">{{ ed.degree }}</div>{% endif %}
+        <div class="university">{{ ed.university }}</div>
+        <div class="meta">
+          {% if ed.dates %}<span class="item">{{ icon('calendar', '#3E3E3E') }}{{ ed.dates }}</span>{% endif %}
+          {% if ed.location %}<span class="item">{{ icon('pin', '#3E3E3E') }}{{ ed.location }}</span>{% endif %}
+        </div>
+        {% if ed.coursework %}<div class="coursework">{{ ed.coursework }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+  </div>
+</body>
+</html>

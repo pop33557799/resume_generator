@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Resume Generator{% endblock %}</title>
+  {# Apply the theme before paint to avoid a flash. Priority: your manual choice,
+     else follow the OS light/dark setting. #}
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('theme');
+        var prefersDark = window.matchMedia &&
+                          window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute(
+          'data-theme', saved || (prefersDark ? 'dark' : 'light'));
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}">📄 Resume Generator</a>
+    <nav>
+      <a href="{{ url_for('index') }}">Generate</a>
+      <a href="{{ url_for('resumes') }}">Resumes</a>
+      <a href="{{ url_for('profile') }}">My Profile</a>
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              onclick="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    function applyThemeIcon() {
+      var btn = document.getElementById('theme-toggle');
+      if (btn) btn.textContent =
+        document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+    }
+    function toggleTheme() {
+      var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('theme', next); } catch (e) {}
+      applyThemeIcon();
+    }
+    applyThemeIcon();
+
+    document.querySelectorAll('.paste-btn[data-paste-target]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var target = document.getElementById(button.dataset.pasteTarget);
+        if (!target || !navigator.clipboard || !navigator.clipboard.readText) {
+          showPasteError(button, target);
+          return;
+        }
+
+        navigator.clipboard.readText().then(function (text) {
+          var start = typeof target.selectionStart === 'number'
+            ? target.selectionStart : target.value.length;
+          var end = typeof target.selectionEnd === 'number'
+            ? target.selectionEnd : target.value.length;
+          target.setRangeText(text, start, end, 'end');
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.focus();
+        }).catch(function () {
+          showPasteError(button, target);
+        });
+      });
+    });
+
+    function showPasteError(button, target) {
+      var originalTitle = button.title;
+      button.classList.add('is-error');
+      button.title = 'Clipboard access blocked. Use Ctrl+V.';
+      if (target) target.focus();
+      setTimeout(function () {
+        button.classList.remove('is-error');
+        button.title = originalTitle;
+      }, 2000);
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

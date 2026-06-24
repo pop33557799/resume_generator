@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Generate — Resume Generator{% endblock %}
+{% block content %}
+<style>
+  .gen-meta-grid .field-group {
+    display: grid;
+    grid-template-rows: minmax(42px, auto) auto;
+    align-content: start;
+  }
+  .gen-meta-grid label {
+    margin-bottom: 0;
+  }
+  .gen-meta-grid label .muted {
+    display: block;
+    line-height: 1.35;
+  }
+</style>
+<h1>Resume</h1>
+<p class="muted">
+  Paste the job description below and click Generate. Your fixed facts come from
+  <a href="{{ url_for('profile') }}">My Profile</a>; the resume is tailored to the job
+  and the PDF is <strong>saved to the <code>resumes/</code> folder</strong> when it's
+  ready (about 15 seconds).
+</p>
+
+{% if not profile.companies %}
+  <div class="flash flash-error">
+    Your profile has no company entries yet. <a href="{{ url_for('profile') }}">Set up your profile</a> first.
+  </div>
+{% endif %}
+
+<form method="post" action="{{ url_for('generate') }}" id="gen-form">
+  {% if profiles %}
+  <label for="profile_id"><strong>Profile</strong>
+    <span class="muted">(which set of facts to use)</span>
+    <select id="profile_id" name="profile_id">
+      {% for p in profiles %}
+      <option value="{{ p.id }}" {{ 'selected' if p.id == active }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <div class="grid2 gen-meta-grid">
+    <div class="field-group">
+      <label for="company_name"><strong>Hiring company</strong>
+        <span class="muted">(optional - avoided as an experience employer)</span>
+      </label>
+      <span class="paste-field">
+        <input id="company_name" name="company_name" placeholder="e.g. Acme Corp">
+        <button type="button" class="paste-btn" data-paste-target="company_name"
+                aria-label="Paste into hiring company" title="Paste">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h6m-6 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 0H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-6 0v2h6V5"/></svg>
+        </button>
+      </span>
+    </div>
+    <div class="field-group">
+      <label for="job_title"><strong>Job title</strong>
+        <span class="muted">(optional)</span>
+      </label>
+      <span class="paste-field">
+        <input id="job_title" name="job_title" placeholder="e.g. Bookkeeper">
+        <button type="button" class="paste-btn" data-paste-target="job_title"
+                aria-label="Paste into job title" title="Paste">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h6m-6 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 0H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-6 0v2h6V5"/></svg>
+        </button>
+      </span>
+    </div>
+  </div>
+  <label for="company_source" style="margin-top:6px;display:block"><strong>Experience company names</strong>
+    <span class="muted">(choose source for resume experience)</span>
+    <select id="company_source" name="company_source">
+      <option value="profile" {{ 'selected' if company_source == 'profile' }}>Use Profile company names</option>
+      <option value="openai" {{ 'selected' if company_source == 'openai' }}>Use OpenAI-generated company names</option>
+    </select>
+  </label>
+  <label for="job_link" class="paste-field-label" style="margin-top:6px;display:block"><strong>Job link</strong>
+    <span class="muted">(optional)</span>
+  </label>
+  <span class="paste-field">
+    <input id="job_link" name="job_link" type="url" placeholder="https://…">
+    <button type="button" class="paste-btn" data-paste-target="job_link"
+            aria-label="Paste into job link" title="Paste">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h6m-6 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 0H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-6 0v2h6V5"/></svg>
+    </button>
+  </span>
+
+  <label for="job_description" style="margin-top:14px;display:block"><strong>Job description</strong></label>
+  <span class="paste-field paste-field-textarea">
+    <textarea id="job_description" name="job_description" rows="16"
+              placeholder="Paste the full job posting here…" required></textarea>
+    <button type="button" class="paste-btn" data-paste-target="job_description"
+            aria-label="Paste into job description" title="Paste">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h6m-6 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 0H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-6 0v2h6V5"/></svg>
+    </button>
+  </span>
+  <button type="submit" class="btn btn-primary" id="gen-btn">Generate &amp; save PDF</button>
+  <span id="gen-status" class="muted" style="margin-left:12px;display:none">⏳ Generating your resume… saving to the resumes/ folder.</span>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const form = document.getElementById('gen-form');
+  const btn = document.getElementById('gen-btn');
+  const status = document.getElementById('gen-status');
+  form.addEventListener('submit', () => {
+    // The page reloads with a confirmation when generation finishes, so this
+    // only shows progress during the ~15s wait.
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    status.style.display = 'inline';
+  });
+</script>
+{% endblock %}

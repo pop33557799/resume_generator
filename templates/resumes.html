@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}Resumes — Resume Generator{% endblock %}
+{% block content %}
+<style>
+  /* This wide table needs more room than the default page width. */
+  .container { max-width: 1260px; }
+  td.fname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Inline job-description preview, expanded under a row on demand. */
+  .jd-toggle { cursor: pointer; }
+  .jd-preview-cell { padding: 0 12px 12px; background: var(--row-hover); }
+  .jd-bar { display: flex; align-items: center; gap: 10px; padding: 8px 0 6px; }
+  .jd-copied { font-size: .8rem; color: var(--flash-success-fg); }
+  .jd-preview { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap;
+                word-break: break-word; font-size: .85rem; line-height: 1.5;
+                font-family: inherit; color: var(--text);
+                border-left: 3px solid var(--blue); padding: 8px 12px;
+                background: var(--surface); border-radius: 6px; }
+</style>
+<h1>Resumes</h1>
+
+{% if profiles %}
+<div class="profiles-bar">
+  <label class="inline">Name:
+    <select onchange="location.href='{{ url_for('resumes') }}?profile=' + encodeURIComponent(this.value)">
+      {% for n in names %}
+      <option value="{{ n.id }}" {{ 'selected' if n.name == current_name }}>{{ n.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <span class="muted">Showing all resumes for this name.</span>
+</div>
+{% endif %}
+
+<p class="muted">Every resume generated for this name, newest first. Search by company, job title, or job link.</p>
+
+<form method="get" action="{{ url_for('resumes') }}" class="searchbar">
+  <input type="hidden" name="profile" value="{{ current }}">
+  <span class="paste-field search-paste-field">
+    <input id="resume-search" type="search" name="q" value="{{ q }}"
+           placeholder="Search company, job title, or job link…" autofocus>
+    <button type="button" class="paste-btn" data-paste-target="resume-search"
+            aria-label="Paste into search" title="Paste">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h6m-6 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 0H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-6 0v2h6V5"/></svg>
+    </button>
+  </span>
+  <button type="submit" class="btn btn-primary">Search</button>
+  {% if q %}<a class="btn" href="{{ url_for('resumes', profile=current) }}">Clear</a>{% endif %}
+</form>
+
+<p class="muted">
+  {% if q %}{{ rows|length }} of {{ total }} match “{{ q }}”.{% else %}{{ total }} resume{{ '' if total == 1 else 's' }} total.{% endif %}
+</p>
+
+{% if rows %}
+<div class="table-wrap">
+<table class="resumes">
+  <colgroup>
+    <col style="width:88px">
+    <col style="width:22%">
+    <col style="width:17%">
+    <col style="width:58px">
+    <col style="width:140px">
+    <col style="width:100px">
+    <col style="width:17%">
+    <col style="width:92px">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Date</th><th>Job Title</th><th>Company</th><th>Job Link</th><th>Resume</th><th>Progress</th><th>Note</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr class="{{ 'is-rejected' if r.is_rejected }}">
+      <td class="nowrap">{{ r.date }}</td>
+      <td>{{ r.job_title }}</td>
+      <td>{{ r.company }}</td>
+      <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">Open ↗</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="fname" title="{{ r.filename }}">
+        {% if r.exists %}
+          <a href="{{ url_for('resume_file', filename=r.filename) }}" target="_blank" rel="noopener">PDF ↗</a>
+        {% elif r.filename %}
+          <span class="muted">{{ r.filename }}</span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+        {% if r.jd_exists %}
+          <span class="muted">·</span>
+          <a class="jd-toggle" href="{{ url_for('resume_file', filename=r.jd) }}"
+             data-jd="{{ url_for('resume_file', filename=r.jd) }}"
+             target="_blank" rel="noopener" title="Show job description">JD ▾</a>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('update_progress') }}" class="progress-form">
+          <input type="hidden" name="row" value="{{ r.row }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <input type="hidden" name="profile_id" value="{{ r.profile_id }}">
+          <select name="progress" onchange="this.form.submit()"
+                  title="{{ r.progress }}"
+                  class="progress-select {{ 'rejected' if r.is_rejected }}">
+            <option value="" {{ 'selected' if not r.is_rejected }}>—</option>
+            <option value="Rejected" {{ 'selected' if r.is_rejected }}>Rejected</option>
+          </select>
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('update_note') }}" class="note-form">
+          <input type="hidden" name="row" value="{{ r.row }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <input type="hidden" name="profile_id" value="{{ r.profile_id }}">
+          <input type="text" name="note" value="{{ r.note }}" class="note-input"
+                 placeholder="Add a note…" onchange="this.form.submit()">
+        </form>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('delete_resume') }}" class="delete-form"
+              onsubmit="return confirm('Delete this entry{{ ' and its PDF' if r.exists }}? This cannot be undone.');">
+          <input type="hidden" name="row" value="{{ r.row }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <input type="hidden" name="profile_id" value="{{ r.profile_id }}">
+          <button type="submit" class="btn btn-remove btn-sm">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% if r.jd_exists %}
+    <tr class="jd-preview-row" hidden>
+      <td class="jd-preview-cell" colspan="8">
+        <div class="jd-bar">
+          <button type="button" class="btn btn-sm jd-copy"
+                  data-jd="{{ url_for('resume_file', filename=r.jd) }}">Copy job description</button>
+          <span class="jd-copied" hidden>Copied ✓</span>
+        </div>
+        <pre class="jd-preview">Loading…</pre>
+      </td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="flash flash-error">
+  {% if q %}No resumes match “{{ q }}”.{% else %}No resumes yet — <a href="{{ url_for('index') }}">generate one</a>.{% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // The saved .txt has a metadata header, then a line of '====', then the job
+  // description. Return just the description body (or the whole text if there's
+  // no separator), so "Copy" yields the clean JD.
+  function jdBody(text) {
+    var lines = text.split('\n');
+    var sep = -1;
+    for (var i = 0; i < lines.length; i++) {
+      if (/^=+$/.test(lines[i].trim())) { sep = i; break; }
+    }
+    return (sep >= 0 ? lines.slice(sep + 1).join('\n') : text).trim();
+  }
+
+  // Copy text to the clipboard, with a fallback for non-secure-context browsers
+  // (the async Clipboard API is unavailable outside https/localhost).
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('execCommand failed'));
+      } catch (e) { reject(e); }
+    });
+  }
+
+  document.querySelectorAll('.jd-copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var cell = btn.closest('.jd-preview-cell');
+      var box = cell.querySelector('.jd-preview');
+      var done = cell.querySelector('.jd-copied');
+      // Use the already-loaded text if present, else fetch it fresh.
+      var source = box.dataset.loaded
+        ? Promise.resolve(box.textContent)
+        : fetch(btn.dataset.jd).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+          });
+      source
+        .then(function (t) { return copyText(jdBody(t)); })
+        .then(function () {
+          done.hidden = false;
+          setTimeout(function () { done.hidden = true; }, 1500);
+        })
+        .catch(function () {
+          done.textContent = 'Copy failed';
+          done.style.color = 'var(--flash-error-fg)';
+          done.hidden = false;
+          setTimeout(function () { done.hidden = true; }, 2000);
+        });
+    });
+  });
+
+  // Expand a job description inline under its row. The text is fetched the first
+  // time the row is opened (lazy), so a long list stays fast.
+  document.querySelectorAll('a.jd-toggle').forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      // Let Ctrl/Cmd/middle-click fall through to open the file in a new tab.
+      if (e.ctrlKey || e.metaKey || e.button === 1) return;
+      e.preventDefault();
+      var preview = link.closest('tr').nextElementSibling;
+      if (!preview || !preview.classList.contains('jd-preview-row')) return;
+      var box = preview.querySelector('.jd-preview');
+      var opening = preview.hidden;
+      preview.hidden = !opening;
+      link.textContent = opening ? 'JD ▴' : 'JD ▾';
+      if (opening && !box.dataset.loaded) {
+        fetch(link.dataset.jd)
+          .then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.text();
+          })
+          .then(function (t) { box.textContent = t; box.dataset.loaded = '1'; })
+          .catch(function () { box.textContent = 'Could not load job description.'; });
+      }
+    });
+  });
+</script>
+{% endblock %}
