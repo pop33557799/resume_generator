@@ -148,6 +148,11 @@ table.resumes tbody tr:hover { background: var(--row-hover); }
 table.resumes a { color: var(--blue); text-decoration: none; white-space: nowrap; }
 table.resumes a:hover { text-decoration: underline; }
 .nowrap { white-space: nowrap; }
+.resume-date { white-space: nowrap; }
+.resume-date-day,
+.resume-date-time { display: block; line-height: 1.25; }
+.resume-date-day { font-weight: 600; color: var(--text); }
+.resume-date-time { margin-top: 2px; color: var(--muted); font-size: .82rem; }
 table.resumes tr.is-rejected { background: var(--rejected-bg); }
 table.resumes tr.is-rejected:hover { background: var(--rejected-bg-hover); }
 .progress-form { margin: 0; }

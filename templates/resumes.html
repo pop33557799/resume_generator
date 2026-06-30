@@ -55,7 +55,7 @@
 <div class="table-wrap">
 <table class="resumes">
   <colgroup>
-    <col style="width:88px">
+    <col style="width:118px">
     <col style="width:22%">
     <col style="width:17%">
     <col style="width:58px">
@@ -72,7 +72,13 @@
   <tbody>
     {% for r in rows %}
     <tr class="{{ 'is-rejected' if r.is_rejected }}">
-      <td class="nowrap">{{ r.date }}</td>
+      <td class="resume-date">
+        {% set date_parts = (r.date|string).split(' ', 1) %}
+        <span class="resume-date-day">{{ date_parts[0] }}</span>
+        {% if date_parts|length > 1 %}
+          <span class="resume-date-time">{{ date_parts[1] }}</span>
+        {% endif %}
+      </td>
       <td>{{ r.job_title }}</td>
       <td>{{ r.company }}</td>
       <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">Open ↗</a>{% else %}<span class="muted">—</span>{% endif %}</td>
