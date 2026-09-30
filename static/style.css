@@ -163,6 +163,26 @@ table.resumes tr.is-rejected:hover { background: var(--rejected-bg-hover); }
 .delete-form { margin: 0; }
 .btn-sm { margin-top: 0; padding: 5px 10px; font-size: .85rem; white-space: nowrap; }
 
+/* Resumes list meta bar (results count + per-page selector). */
+.resumes-meta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+                justify-content: space-between; margin: 2px 0 12px; }
+.resumes-meta p { margin: 0; }
+.per-page-form { margin: 0; }
+.per-page-form .inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.per-page-form select { width: auto; margin-top: 0; min-width: 80px; }
+
+/* Pagination controls above the table. */
+.pagination { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+              justify-content: center; margin: 6px 0 18px; }
+.pagination .page-link { padding: 6px 14px; border-radius: 6px; font-weight: 600;
+                         background: var(--surface); border: 1px solid var(--border);
+                         color: var(--blue); text-decoration: none; }
+.pagination a.page-link:hover { background: var(--row-hover); text-decoration: none;
+                                border-color: var(--blue); }
+.pagination .page-link.disabled { color: var(--muted); opacity: .55; cursor: not-allowed;
+                                  pointer-events: none; }
+.pagination .page-info { color: var(--muted); padding: 6px 8px; }
+
 /* Profiles bar */
 .profiles-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
                 margin: 8px 0 12px; padding: 12px 14px; background: var(--surface);

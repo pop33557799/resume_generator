@@ -47,11 +47,43 @@
   {% if q %}<a class="btn" href="{{ url_for('resumes', profile=current) }}">Clear</a>{% endif %}
 </form>
 
-<p class="muted">
-  {% if q %}{{ rows|length }} of {{ total }} match “{{ q }}”.{% else %}{{ total }} resume{{ '' if total == 1 else 's' }} total.{% endif %}
-</p>
+<div class="resumes-meta">
+  <p class="muted">
+    {% if q %}{{ shown }} of {{ total }} match “{{ q }}”.{% else %}{{ total }} resume{{ '' if total == 1 else 's' }} total.{% endif %}
+  </p>
+  {% if shown %}
+  <form method="get" action="{{ url_for('resumes') }}" class="per-page-form">
+    <input type="hidden" name="profile" value="{{ current }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <label class="inline per-page-label">Per page:
+      <select name="per_page" onchange="this.form.submit()">
+        {% for n in per_page_choices %}
+        <option value="{{ n }}" {{ 'selected' if n == per_page }}>{{ n }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% endif %}
+</div>
 
 {% if rows %}
+{% if page_count > 1 %}
+<nav class="pagination" aria-label="Resume pages">
+  {% if page > 1 %}
+    <a class="page-link" href="{{ url_for('resumes', profile=current, q=q, page=page-1, per_page=per_page) }}">« Prev</a>
+  {% else %}
+    <span class="page-link disabled">« Prev</span>
+  {% endif %}
+
+  <span class="page-info">Page {{ page }} of {{ page_count }}</span>
+
+  {% if page < page_count %}
+    <a class="page-link" href="{{ url_for('resumes', profile=current, q=q, page=page+1, per_page=per_page) }}">Next »</a>
+  {% else %}
+    <span class="page-link disabled">Next »</span>
+  {% endif %}
+</nav>
+{% endif %}
 <div class="table-wrap">
 <table class="resumes">
   <colgroup>
@@ -102,6 +134,8 @@
           <input type="hidden" name="row" value="{{ r.row }}">
           <input type="hidden" name="q" value="{{ q }}">
           <input type="hidden" name="profile_id" value="{{ r.profile_id }}">
+          <input type="hidden" name="page" value="{{ page }}">
+          <input type="hidden" name="per_page" value="{{ per_page }}">
           <select name="progress" onchange="this.form.submit()"
                   title="{{ r.progress }}"
                   class="progress-select {{ 'rejected' if r.is_rejected }}">
@@ -115,6 +149,8 @@
           <input type="hidden" name="row" value="{{ r.row }}">
           <input type="hidden" name="q" value="{{ q }}">
           <input type="hidden" name="profile_id" value="{{ r.profile_id }}">
+          <input type="hidden" name="page" value="{{ page }}">
+          <input type="hidden" name="per_page" value="{{ per_page }}">
           <input type="text" name="note" value="{{ r.note }}" class="note-input"
                  placeholder="Add a note…" onchange="this.form.submit()">
         </form>
@@ -125,6 +161,8 @@
           <input type="hidden" name="row" value="{{ r.row }}">
           <input type="hidden" name="q" value="{{ q }}">
           <input type="hidden" name="profile_id" value="{{ r.profile_id }}">
+          <input type="hidden" name="page" value="{{ page }}">
+          <input type="hidden" name="per_page" value="{{ per_page }}">
           <button type="submit" class="btn btn-remove btn-sm">Delete</button>
         </form>
       </td>

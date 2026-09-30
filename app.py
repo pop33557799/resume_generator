@@ -15,12 +15,13 @@ Model (per the reference prompt):
 """
 
 import json
+import math
 import os
 import re
 import html
 import tempfile
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -1000,6 +1001,179 @@ def read_log_rows(pid: str) -> list:
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Statistics — how many resumes were generated per day (/stats page)
+# ---------------------------------------------------------------------------
+
+# Range choices for the daily chart: (key, label, number of days, None = all time)
+STATS_RANGES = (
+    ("7", "Last 7 days", 7),
+    ("14", "Last 14 days", 14),
+    ("30", "Last 30 days", 30),
+    ("90", "Last 90 days", 90),
+    ("all", "All time", None),
+)
+STATS_RANGE_DEFAULT = "30"
+STATS_MONTHS = 12          # months shown in the monthly chart
+STATS_MAX_BARS = 730       # never render more than ~2 years of daily bars
+
+
+def _log_date(value: str) -> str:
+    """A log row's Date cell is 'YYYY-MM-DD HH:MM:SS' (older rows are just
+    'YYYY-MM-DD'). Return the YYYY-MM-DD part, or '' when it isn't a date."""
+    m = re.match(r"^\s*(\d{4}-\d{2}-\d{2})", str(value or ""))
+    return m.group(1) if m else ""
+
+
+def daily_counts(rows: list) -> dict:
+    """{'YYYY-MM-DD': count} over a list of log rows."""
+    counts = {}
+    for r in rows:
+        day = _log_date(r.get("date", ""))
+        if day:
+            counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+def monthly_counts(counts: dict) -> dict:
+    """{'YYYY-MM': count} rolled up from the daily counts."""
+    months = {}
+    for day, n in counts.items():
+        key = day[:7]
+        months[key] = months.get(key, 0) + n
+    return months
+
+
+def build_daily_series(counts: dict, days: int | None, today: date) -> list:
+    """One entry per day, oldest → newest, with the count and bar height (% of
+    peak). days=None means all time: from the first logged day through today."""
+    if days is None:
+        first = date.fromisoformat(min(counts)) if counts else today
+        span = (today - first).days + 1
+    else:
+        span = days
+    span = min(max(span, 1), STATS_MAX_BARS)
+    start = today - timedelta(days=span - 1)
+    series = []
+    for i in range(span):
+        day = start + timedelta(days=i)
+        key = day.isoformat()
+        series.append({"date": key, "label": day.strftime("%d/%m"),
+                       "count": counts.get(key, 0)})
+    peak = max((s["count"] for s in series), default=0)
+    for s in series:
+        s["pct"] = round(s["count"] / peak * 100) if peak else 0
+        s["is_today"] = s["date"] == today.isoformat()
+    return series
+
+
+def build_monthly_series(counts: dict, months: int, today: date) -> list:
+    """The last `months` calendar months (oldest → newest), with counts and bar
+    height (% of peak)."""
+    keys, y, m = [], today.year, today.month
+    for _ in range(months):
+        keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    series = [{"key": k, "label": f"{_MONTHS[int(k[5:7])][:3]} {k[2:4]}",
+               "count": counts.get(k, 0)} for k in reversed(keys)]
+    peak = max((s["count"] for s in series), default=0)
+    for s in series:
+        s["pct"] = round(s["count"] / peak * 100) if peak else 0
+        s["is_current"] = s["key"] == f"{today.year:04d}-{today.month:02d}"
+    return series
+
+
+def stats_summary(counts: dict, rows: list, today: date) -> dict:
+    """Headline numbers for the stats page."""
+    def window(days: int) -> int:
+        start = today - timedelta(days=days - 1)
+        return sum(n for day, n in counts.items()
+                   if start <= date.fromisoformat(day) <= today)
+
+    best_day, best_count = "", 0
+    for day, n in counts.items():
+        if n > best_count or (n == best_count and day > best_day):
+            best_day, best_count = day, n
+
+    # Consecutive days with at least one resume, ending today (or yesterday).
+    streak, cursor = 0, today
+    if counts.get(cursor.isoformat(), 0) == 0:
+        cursor -= timedelta(days=1)
+    while counts.get(cursor.isoformat(), 0) > 0:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    companies = {(r.get("company") or "").strip().lower()
+                 for r in rows if (r.get("company") or "").strip()}
+    return {
+        "total": len(rows),
+        "today": counts.get(today.isoformat(), 0),
+        "yesterday": counts.get((today - timedelta(days=1)).isoformat(), 0),
+        "week": window(7),
+        "month": window(30),
+        "avg_day": round(window(30) / 30, 1),
+        "active_days": len(counts),
+        "best_day": best_day,
+        "best_day_label": (f"{best_day[8:10]}/{best_day[5:7]}/{best_day[0:4]}"
+                           if best_day else "—"),
+        "best_count": best_count,
+        "streak": streak,
+        "rejected": sum(1 for r in rows if r.get("is_rejected")),
+        "companies": len(companies),
+    }
+
+
+@app.route("/stats")
+def stats():
+    """Daily generation counts + charts for the selected name's resumes."""
+    _migrate_legacy_log()
+    profiles = list_profiles()
+    pid = request.args.get("profile", "").strip() or get_active_id()
+    if pid:
+        set_active_id(pid)
+    current_profile = load_profile(pid)
+    current_name = current_profile.get("name", "")
+    names = list_profile_names(profiles)
+
+    # Same scope as the Resumes page: every log belonging to this name.
+    rows = []
+    for p in profiles_for_name(current_name, profiles):
+        rows.extend(read_log_rows(p["id"]))
+
+    today = date.today()
+    counts = daily_counts(rows)
+
+    range_key = request.args.get("range", "").strip() or STATS_RANGE_DEFAULT
+    range_days = {key: days for key, _label, days in STATS_RANGES}
+    if range_key not in range_days:
+        range_key = STATS_RANGE_DEFAULT
+    range_label = next(label for key, label, _d in STATS_RANGES if key == range_key)
+
+    daily = build_daily_series(counts, range_days[range_key], today)
+    monthly = build_monthly_series(monthly_counts(counts), STATS_MONTHS, today)
+
+    # The table follows the selected range so it always agrees with the chart.
+    in_range = {s["date"] for s in daily if s["count"]}
+    daily_table = [
+        {"date": day, "weekday": date.fromisoformat(day).strftime("%a"),
+         "count": counts[day]}
+        for day in sorted(in_range, reverse=True)
+    ]
+    range_total = sum(row["count"] for row in daily_table)
+    for row in daily_table:
+        row["pct"] = round(row["count"] / range_total * 100) if range_total else 0
+
+    return render_template(
+        "stats.html", summary=stats_summary(counts, rows, today),
+        daily=daily, daily_peak=max((s["count"] for s in daily), default=0),
+        monthly=monthly, daily_table=daily_table, range_total=range_total,
+        ranges=STATS_RANGES, range_key=range_key, range_label=range_label,
+        today=today, profiles=profiles, current=pid, names=names,
+        current_name=current_name)
+
+
 @app.route("/generate", methods=["POST"])
 def generate():
     job_description = request.form.get("job_description", "").strip()
@@ -1045,12 +1219,20 @@ def generate():
     return redirect(url_for("index"))
 
 
-def _resumes_redirect(pid: str, query: str):
+RESUMES_PER_PAGE_CHOICES = (20, 50, 100, 500)
+RESUMES_PER_PAGE_DEFAULT = RESUMES_PER_PAGE_CHOICES[0]
+
+
+def _resumes_redirect(pid: str, query: str, page: int = None, per_page: int = None):
     args = {}
     if query:
         args["q"] = query
     if pid:
         args["profile"] = pid
+    if page and page > 1:
+        args["page"] = page
+    if per_page and per_page != RESUMES_PER_PAGE_DEFAULT:
+        args["per_page"] = per_page
     return redirect(url_for("resumes", **args))
 
 
@@ -1079,9 +1261,22 @@ def resumes():
                 if q in r["job_title"].lower()
                 or q in r["company"].lower()
                 or q in r["url"].lower()]
+    shown = len(rows)
+
+    per_page = request.args.get("per_page", type=int) or RESUMES_PER_PAGE_DEFAULT
+    if per_page not in RESUMES_PER_PAGE_CHOICES:
+        per_page = RESUMES_PER_PAGE_DEFAULT
+    page_count = max(1, math.ceil(shown / per_page)) if shown else 1
+    page = request.args.get("page", type=int) or 1
+    page = min(max(page, 1), page_count)
+    start = (page - 1) * per_page
+    rows = rows[start:start + per_page]
+
     return render_template("resumes.html", rows=rows, q=query, total=total,
-                           shown=len(rows), profiles=profiles, current=pid,
-                           names=names, current_name=current_name)
+                           shown=shown, profiles=profiles, current=pid,
+                           names=names, current_name=current_name,
+                           page=page, page_count=page_count, per_page=per_page,
+                           per_page_choices=RESUMES_PER_PAGE_CHOICES)
 
 
 PROGRESS_VALUES = ("", "Rejected")
@@ -1094,6 +1289,8 @@ def update_progress():
     progress = request.form.get("progress", "").strip()
     query = request.form.get("q", "").strip()
     pid = request.form.get("profile_id", "").strip() or get_active_id()
+    page = request.form.get("page", type=int)
+    per_page = request.form.get("per_page", type=int)
     if progress not in PROGRESS_VALUES:
         progress = ""
     path = resumes_log_path(pid) if pid else None
@@ -1109,7 +1306,7 @@ def update_progress():
         except Exception as exc:  # noqa: BLE001
             app.logger.warning("Could not update progress: %s", exc)
             flash("Could not update progress (is the Excel file open elsewhere?).", "error")
-    return _resumes_redirect(pid, query)
+    return _resumes_redirect(pid, query, page, per_page)
 
 
 @app.route("/resumes/note", methods=["POST"])
@@ -1119,6 +1316,8 @@ def update_note():
     note = request.form.get("note", "").strip()
     query = request.form.get("q", "").strip()
     pid = request.form.get("profile_id", "").strip() or get_active_id()
+    page = request.form.get("page", type=int)
+    per_page = request.form.get("per_page", type=int)
     path = resumes_log_path(pid) if pid else None
     if row and row >= 2 and path and path.exists():
         try:
@@ -1130,7 +1329,7 @@ def update_note():
         except Exception as exc:  # noqa: BLE001
             app.logger.warning("Could not update note: %s", exc)
             flash("Could not update note (is the Excel file open elsewhere?).", "error")
-    return _resumes_redirect(pid, query)
+    return _resumes_redirect(pid, query, page, per_page)
 
 
 @app.route("/resumes/delete", methods=["POST"])
@@ -1139,6 +1338,8 @@ def delete_resume():
     row = request.form.get("row", type=int)
     query = request.form.get("q", "").strip()
     pid = request.form.get("profile_id", "").strip() or get_active_id()
+    page = request.form.get("page", type=int)
+    per_page = request.form.get("per_page", type=int)
     path = resumes_log_path(pid) if pid else None
     if row and row >= 2 and path and path.exists():
         try:
@@ -1159,7 +1360,7 @@ def delete_resume():
         except Exception as exc:  # noqa: BLE001
             app.logger.warning("Could not delete row: %s", exc)
             flash("Could not delete (is the Excel file open elsewhere?).", "error")
-    return _resumes_redirect(pid, query)
+    return _resumes_redirect(pid, query, page, per_page)
 
 
 @app.route("/resumes/file/<path:filename>")
@@ -1171,4 +1372,4 @@ def resume_file(filename):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, use_reloader=False)

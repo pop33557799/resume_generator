@@ -51,6 +51,8 @@ Open http://127.0.0.1:5000
    Save.
 2. **Generate** → paste a job description → **Generate tailored resume**.
 3. Review the preview → **Download PDF**.
+4. **Stats** → see how many resumes you generated per day (daily + monthly charts,
+   current streak, busiest day, rejections).
 
 ## Files
 
@@ -58,4 +60,5 @@ Open http://127.0.0.1:5000
 - `profile.json` — your fixed facts (git-ignored)
 - `templates/resume.html` — the Bitter/Roboto resume layout
 - `templates/profile.html` — profile editor
+- `templates/stats.html` — daily/monthly generation charts (`/stats`)
 - `static/style.css` — UI styling

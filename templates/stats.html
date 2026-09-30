@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Stats — Resume Generator{% endblock %}
+{% block content %}
+<style>
+  /* This page holds charts, so it needs more room than the default width. */
+  .container { max-width: 1100px; }
+
+  /* Summary tiles */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+               gap: 12px; margin: 16px 0 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border);
+               border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); }
+  .stat-label { color: var(--muted); font-size: .78rem; font-weight: 700;
+                text-transform: uppercase; letter-spacing: .04em; }
+  .stat-value { font-size: 1.7rem; font-weight: 700; line-height: 1.15; margin-top: 5px; }
+  .stat-sub { color: var(--muted); font-size: .82rem; margin-top: 3px; }
+
+  /* Range pills */
+  .range-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; }
+  .range-bar .range-link { padding: 6px 13px; border-radius: 999px; font-size: .88rem;
+                           font-weight: 600; text-decoration: none; color: var(--btn-text);
+                           background: var(--surface); border: 1px solid var(--border-strong); }
+  .range-bar .range-link:hover { background: var(--btn-hover); }
+  .range-bar .range-link.is-active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  /* Charts — bars are plain divs sized by the server, so they follow the
+     light/dark theme variables and need no charting library or CDN. */
+  .chart-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+                 padding: 16px 18px 14px; box-shadow: var(--shadow); margin-bottom: 20px; }
+  .chart-panel h2 { margin: 0 0 6px; font-size: 1.05rem; }
+  .chart-panel .chart-note { margin: 0; font-size: .85rem; }
+  .chart-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch;
+                  padding: 26px 2px 0; margin-top: 6px; }
+  .chart { display: flex; align-items: flex-end; gap: 4px; width: max-content;
+           padding-bottom: 4px; border-bottom: 1px solid var(--border-strong); }
+  .chart-col { flex: 0 0 auto; width: var(--col-w, 34px); display: flex;
+               flex-direction: column; align-items: center; }
+  .chart-plot { position: relative; width: 100%; height: 180px; display: flex;
+                align-items: flex-end; justify-content: center; }
+  .chart-bar { position: relative; width: 76%; min-height: 2px; border-radius: 4px 4px 0 0;
+               background: var(--blue); }
+  .chart-bar:hover { filter: brightness(1.12); }
+  .chart-bar.is-empty { background: var(--border-strong); }
+  .chart-count { position: absolute; top: -19px; left: 50%; transform: translateX(-50%);
+                 font-size: .74rem; font-weight: 700; color: var(--text); }
+  .chart-bar.is-empty .chart-count { visibility: hidden; }
+  .chart-day { font-size: .72rem; color: var(--muted); margin-top: 6px; white-space: nowrap; }
+  .chart-col.is-today .chart-day { color: var(--blue); font-weight: 700; }
+  .chart-col.is-today .chart-bar { box-shadow: 0 0 0 2px var(--blue-soft); }
+  .chart-months { --col-w: 46px; }
+
+  /* Daily totals table */
+  .stats-table { width: 100%; border-collapse: collapse; background: var(--surface);
+                 border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+                 font-size: .92rem; }
+  .stats-table th, .stats-table td { text-align: left; padding: 9px 12px;
+                 border-bottom: 1px solid var(--row-border); }
+  .stats-table thead th { background: var(--th-bg); color: var(--th-text); font-weight: 700;
+                 white-space: nowrap; }
+  .stats-table tbody tr:last-child td { border-bottom: none; }
+  .stats-table tbody tr:hover { background: var(--row-hover); }
+  .stats-table .num { text-align: right; font-weight: 700;
+                      font-variant-numeric: tabular-nums; }
+  .share-cell { width: 42%; }
+  .share-track { display: inline-block; vertical-align: middle; width: calc(100% - 56px);
+                 min-width: 60px; height: 8px; border-radius: 999px;
+                 background: var(--blue-soft); overflow: hidden; }
+  .share-fill { display: block; height: 100%; background: var(--blue); border-radius: 999px; }
+  .share-text { margin-left: 8px; font-size: .82rem; }
+
+  @media (max-width: 640px) {
+    .stat-value { font-size: 1.45rem; }
+    .chart-plot { height: 140px; }
+    .share-cell { width: auto; }
+  }
+</style>
+
+<h1>Stats</h1>
+<p class="muted">
+  How many resumes were generated each day{% if current_name %} for <strong>{{ current_name }}</strong>{% endif %},
+  counted from the same logs the <a href="{{ url_for('resumes', profile=current) }}">Resumes</a> page shows.
+</p>
+
+{% if profiles %}
+<div class="profiles-bar">
+  <label class="inline">Name:
+    <select onchange="location.href='{{ url_for('stats') }}?profile=' + encodeURIComponent(this.value) + '&range={{ range_key }}'">
+      {% for n in names %}
+      <option value="{{ n.id }}" {{ 'selected' if n.name == current_name }}>{{ n.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <span class="muted">Showing all resumes logged for this name.</span>
+</div>
+{% endif %}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-label">Total resumes</div>
+    <div class="stat-value">{{ summary.total }}</div>
+    <div class="stat-sub">on {{ summary.active_days }} active day{{ '' if summary.active_days == 1 else 's' }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Today</div>
+    <div class="stat-value">{{ summary.today }}</div>
+    <div class="stat-sub">yesterday: {{ summary.yesterday }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Last 7 days</div>
+    <div class="stat-value">{{ summary.week }}</div>
+    <div class="stat-sub">{{ (summary.week / 7)|round(1) }} per day</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Last 30 days</div>
+    <div class="stat-value">{{ summary.month }}</div>
+    <div class="stat-sub">{{ summary.avg_day }} per day</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Best day</div>
+    <div class="stat-value">{{ summary.best_count }}</div>
+    <div class="stat-sub">{{ summary.best_day_label }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Current streak</div>
+    <div class="stat-value">{{ summary.streak }}</div>
+    <div class="stat-sub">day{{ '' if summary.streak == 1 else 's' }} in a row</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Companies</div>
+    <div class="stat-value">{{ summary.companies }}</div>
+    <div class="stat-sub">applied to</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Rejected</div>
+    <div class="stat-value">{{ summary.rejected }}</div>
+    <div class="stat-sub">marked rejected</div>
+  </div>
+</div>
+
+<div class="range-bar">
+  {% for key, label, days in ranges %}
+  <a class="range-link {{ 'is-active' if key == range_key }}"
+     href="{{ url_for('stats', profile=current, range=key) }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+{% if not summary.total %}
+<div class="flash">No resumes logged yet for this name. Generate one from the
+  <a href="{{ url_for('index') }}">Generate</a> page and it will show up here.</div>
+{% else %}
+<div class="chart-panel">
+  <h2>Daily resumes generated — {{ range_label }}</h2>
+  <p class="chart-note muted">
+    {{ range_total }} in this range · peak {{ daily_peak }} in a day{% if summary.best_day %}
+    ({{ summary.best_day_label }}){% endif %} · hover a bar for its date
+  </p>
+  <div class="chart-scroll">
+    <div class="chart">
+      {% for d in daily %}
+      <div class="chart-col {{ 'is-today' if d.is_today }}"
+           title="{{ d.date }}: {{ d.count }} resume{{ '' if d.count == 1 else 's' }}">
+        <div class="chart-plot">
+          <div class="chart-bar {{ 'is-empty' if not d.count }}"
+               style="height: {{ d.pct if d.count else 0 }}%">
+            <span class="chart-count">{{ d.count }}</span>
+          </div>
+        </div>
+        <span class="chart-day">{{ d.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="chart-panel">
+  <h2>Monthly totals — last 12 months</h2>
+  <p class="chart-note muted">
+    Same count, rolled up per calendar month. The current month ({{ today.strftime('%B %Y') }})
+    is still in progress.
+  </p>
+  <div class="chart-scroll">
+    <div class="chart chart-months">
+      {% for m in monthly %}
+      <div class="chart-col {{ 'is-today' if m.is_current }}"
+           title="{{ m.key }}: {{ m.count }} resume{{ '' if m.count == 1 else 's' }}">
+        <div class="chart-plot">
+          <div class="chart-bar {{ 'is-empty' if not m.count }}"
+               style="height: {{ m.pct if m.count else 0 }}%">
+            <span class="chart-count">{{ m.count }}</span>
+          </div>
+        </div>
+        <span class="chart-day">{{ m.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="chart-panel">
+  <h2>Daily breakdown — {{ range_label }}</h2>
+  <p class="chart-note muted">
+    {{ daily_table|length }} day{{ '' if daily_table|length == 1 else 's' }} with at least one resume,
+    newest first. Days with none are left out.
+  </p>
+  <div class="chart-scroll">
+    {% if daily_table %}
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>Date</th><th>Day</th><th class="num">Resumes</th><th class="share-cell">Share of range</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in daily_table %}
+        <tr>
+          <td class="nowrap">{{ row.date }}</td>
+          <td class="muted">{{ row.weekday }}</td>
+          <td class="num">{{ row.count }}</td>
+          <td class="share-cell">
+            <span class="share-track"><span class="share-fill" style="width: {{ row.pct }}%"></span></span>
+            <span class="muted share-text">{{ row.pct }}%</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No resumes in this range — pick a longer range above.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
