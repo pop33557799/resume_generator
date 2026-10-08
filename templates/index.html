@@ -66,6 +66,14 @@
       </span>
     </div>
   </div>
+  <label for="ai_provider" style="margin-top:6px;display:block"><strong>AI provider</strong>
+    <span class="muted">(model used to write the resume)</span>
+    <select id="ai_provider" name="ai_provider">
+      <option value="openai" {{ 'selected' if ai_provider == 'openai' }}>OpenAI ({{ openai_model }})</option>
+      <option value="gemini" {{ 'selected' if ai_provider == 'gemini' }}>Gemini ({{ gemini_model }})</option>
+      <option value="groq" {{ 'selected' if ai_provider == 'groq' }}>Groq ({{ groq_model }})</option>
+    </select>
+  </label>
   <label for="company_source" style="margin-top:6px;display:block"><strong>Experience company names</strong>
     <span class="muted">(choose source for resume experience)</span>
     <select id="company_source" name="company_source">

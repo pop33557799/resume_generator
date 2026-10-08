@@ -32,7 +32,7 @@ from flask import (
     send_from_directory, session, url_for,
 )
 from markupsafe import Markup
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from weasyprint import HTML
 
 load_dotenv()
@@ -59,6 +59,15 @@ def _migrate_legacy_log() -> None:
     if pid and not resumes_log_path(pid).exists():
         os.replace(LEGACY_RESUMES_LOG, resumes_log_path(pid))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+# Groq's free tier allows 8000 tokens/minute (prompt + max_tokens), and the
+# prompt alone is ~4800. Cap the output and keep gpt-oss reasoning short so the
+# hidden reasoning doesn't eat the budget and cut the resume off mid-Summary.
+GROQ_MAX_TOKENS = 3000
+AI_PROVIDERS = ("openai", "gemini", "groq")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "dev-secret-change-me")
@@ -677,15 +686,55 @@ def invalid_openai_company_names(parsed_exp: list, profile: dict,
     return problems
 
 
-def tailor_resume(profile: dict, job_description: str, target_company: str = "",
-                  company_source: str = "profile") -> dict:
+def ai_client(provider: str) -> tuple:
+    """Return (client, model) for the chosen provider. Gemini and Groq speak
+    the OpenAI API, so the same client works with a different base URL."""
+    if provider == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key or api_key.startswith("paste-"):
+            raise RuntimeError("No Gemini API key configured. Edit .env and add GEMINI_API_KEY.")
+        return OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL), GEMINI_MODEL
+    if provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key or api_key.startswith("gsk_paste"):
+            raise RuntimeError("No Groq API key configured. Edit .env and add GROQ_API_KEY.")
+        return OpenAI(api_key=api_key, base_url=GROQ_BASE_URL), GROQ_MODEL
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or api_key.startswith("sk-paste"):
         raise RuntimeError("No OpenAI API key configured. Edit .env and add your key.")
-    client = OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key), MODEL
 
-    resp = client.chat.completions.create(
-        model=MODEL,
+
+def create_chat(client, **kwargs):
+    """chat.completions.create, but wait out short per-minute rate limits
+    (Groq's free tier: "Please try again in 7.65s") instead of failing."""
+    for attempt in range(3):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as exc:
+            m = re.search(r"try again in (?:(\d+)m(?!s))?([\d.]+)(ms|s)", str(exc))
+            wait = None
+            if m:
+                secs = float(m.group(2)) / (1000 if m.group(3) == "ms" else 1)
+                wait = int(m.group(1) or 0) * 60 + secs + 1
+            if wait is None or wait > 65 or attempt == 2:
+                raise
+            time.sleep(wait)
+
+
+def tailor_resume(profile: dict, job_description: str, target_company: str = "",
+                  company_source: str = "profile", provider: str = "openai") -> dict:
+    client, model = ai_client(provider)
+    limits = {}
+    if provider == "groq":
+        limits["max_tokens"] = GROQ_MAX_TOKENS
+        if model.startswith("openai/gpt-oss"):
+            limits["reasoning_effort"] = "low"
+
+    resp = create_chat(
+        client,
+        model=model,
+        **limits,
         temperature=0.6,
         messages=[
             {"role": "system", "content":
@@ -709,8 +758,10 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
                 + " experience/company blocks. Do not use profile company names, "
                 + "generic slot labels, duplicate company names, or the target/hiring company."
             )
-            resp = client.chat.completions.create(
-                model=MODEL,
+            resp = create_chat(
+                client,
+                model=model,
+                **limits,
                 temperature=0.6,
                 messages=[
                     {"role": "system", "content":
@@ -773,9 +824,15 @@ def index():
     company_source = session.get("company_source", "profile")
     if company_source not in ("profile", "openai"):
         company_source = "profile"
+    ai_provider = session.get("ai_provider", "openai")
+    if ai_provider not in AI_PROVIDERS:
+        ai_provider = "openai"
+    print("ai_provider====" + ai_provider)
     return render_template("index.html", profiles=list_profile_names(list_profiles()),
                            active=active, profile=load_profile(active),
-                           company_source=company_source)
+                           company_source=company_source, ai_provider=ai_provider,
+                           openai_model=MODEL, gemini_model=GEMINI_MODEL,
+                           groq_model=GROQ_MODEL)
 
 
 @app.route("/profile", methods=["GET", "POST"])
@@ -1196,9 +1253,14 @@ def generate():
     if company_source not in ("profile", "openai"):
         company_source = "profile"
     session["company_source"] = company_source
+    ai_provider = request.form.get("ai_provider", "openai").strip()
+    if ai_provider not in AI_PROVIDERS:
+        ai_provider = "openai"
+    session["ai_provider"] = ai_provider
 
     try:
-        tailored = tailor_resume(profile_data, job_description, company, company_source)
+        tailored = tailor_resume(profile_data, job_description, company, company_source,
+                                 ai_provider)
         for w in build_warnings(tailored):
             app.logger.warning("Resume parse: %s", w)
         pdf_bytes = render_pdf(profile_data, tailored)
