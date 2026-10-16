@@ -59,15 +59,37 @@ def _migrate_legacy_log() -> None:
     if pid and not resumes_log_path(pid).exists():
         os.replace(LEGACY_RESUMES_LOG, resumes_log_path(pid))
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-# Groq's free tier allows 8000 tokens/minute (prompt + max_tokens), and the
-# prompt alone is ~4800. Cap the output and keep gpt-oss reasoning short so the
-# hidden reasoning doesn't eat the budget and cut the resume off mid-Summary.
-GROQ_MAX_TOKENS = 3000
-AI_PROVIDERS = ("openai", "gemini", "groq")
+NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4.1-flash")
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# NVIDIA-hosted models often default to a short output cap (~1024 tokens),
+# which would cut the resume off; ask for enough room explicitly.
+NVIDIA_MAX_TOKENS = 8000
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# OpenRouter refuses a request unless the balance covers max_tokens up front, so
+# keep the cap close to a full resume (GPT-4o writes one in ~1,100 tokens)
+# instead of the model's maximum (16,384) — a low-credit key can't afford that.
+OPENROUTER_MAX_TOKENS = 2000
+AI_PROVIDERS = ("openai", "nvidia", "openrouter")
+# Models offered in the Generate page's "Model" dropdown, per provider. Each
+# provider's model from .env is the default and is added to its list if missing.
+MODEL_CHOICES = {
+    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-5.6-terra", "gpt-5.6-luna"],
+    "nvidia": ["deepseek-ai/deepseek-v4.1-flash", "nvidia/nemotron-3.5-lightning-30b-a3b",
+               "moonshotai/kimi-k3"],
+    "openrouter": ["openai/gpt-4o", "openai/gpt-4o-mini", "openai/gpt-5.6-terra",
+                   "openai/gpt-5.6-luna", "deepseek/deepseek-v4.1-flash",
+                   "anthropic/claude-sonnet-5.5"],
+}
+DEFAULT_MODELS = {"openai": MODEL, "nvidia": NVIDIA_MODEL, "openrouter": OPENROUTER_MODEL}
+for _provider, _default in DEFAULT_MODELS.items():
+    if _default not in MODEL_CHOICES[_provider]:
+        MODEL_CHOICES[_provider].insert(0, _default)
+
+
+def chosen_model(provider: str, model: str) -> str:
+    """The requested model if it's offered for this provider, else its default."""
+    return model if model in MODEL_CHOICES[provider] else DEFAULT_MODELS[provider]
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "dev-secret-change-me")
@@ -565,6 +587,13 @@ def _strip_kw(text: str) -> str:
     return (text or "").replace("<<", "").replace(">>", "")
 
 
+def response_text(resp) -> str:
+    """Model reply text, minus any <think>...</think> reasoning block that some
+    open models (DeepSeek, Kimi, Nemotron, ...) put before the answer."""
+    text = resp.choices[0].message.content or ""
+    return re.sub(r"(?s)^\s*<think>.*?</think>\s*", "", text)
+
+
 def parse_resume_text(text: str) -> dict:
     subtitle = ""
     summary_parts, skills, experience, education = [], [], [], []
@@ -687,18 +716,21 @@ def invalid_openai_company_names(parsed_exp: list, profile: dict,
 
 
 def ai_client(provider: str) -> tuple:
-    """Return (client, model) for the chosen provider. Gemini and Groq speak
+    """Return (client, model) for the chosen provider. NVIDIA and OpenRouter speak
     the OpenAI API, so the same client works with a different base URL."""
-    if provider == "gemini":
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key or api_key.startswith("paste-"):
-            raise RuntimeError("No Gemini API key configured. Edit .env and add GEMINI_API_KEY.")
-        return OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL), GEMINI_MODEL
-    if provider == "groq":
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key or api_key.startswith("gsk_paste"):
-            raise RuntimeError("No Groq API key configured. Edit .env and add GROQ_API_KEY.")
-        return OpenAI(api_key=api_key, base_url=GROQ_BASE_URL), GROQ_MODEL
+    if provider == "nvidia":
+        api_key = os.getenv("NVIDIA_API_KEY")
+        if not api_key or api_key.startswith("nvapi-paste"):
+            raise RuntimeError("No NVIDIA API key configured. Edit .env and add NVIDIA_API_KEY "
+                               "(free key at https://build.nvidia.com).")
+        return OpenAI(api_key=api_key, base_url=NVIDIA_BASE_URL), NVIDIA_MODEL
+    if provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key or api_key.startswith("sk-or-paste"):
+            raise RuntimeError("No OpenRouter API key configured. Edit .env and add OPENROUTER_API_KEY.")
+        # Optional OpenRouter header: names the app on openrouter.ai's activity page.
+        return OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL,
+                      default_headers={"X-OpenRouter-Title": "Resume Generator"}), OPENROUTER_MODEL
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key or api_key.startswith("sk-paste"):
         raise RuntimeError("No OpenAI API key configured. Edit .env and add your key.")
@@ -707,7 +739,7 @@ def ai_client(provider: str) -> tuple:
 
 def create_chat(client, **kwargs):
     """chat.completions.create, but wait out short per-minute rate limits
-    (Groq's free tier: "Please try again in 7.65s") instead of failing."""
+    (e.g. "Please try again in 7.65s") instead of failing."""
     for attempt in range(3):
         try:
             return client.chat.completions.create(**kwargs)
@@ -723,27 +755,42 @@ def create_chat(client, **kwargs):
 
 
 def tailor_resume(profile: dict, job_description: str, target_company: str = "",
-                  company_source: str = "profile", provider: str = "openai") -> dict:
-    client, model = ai_client(provider)
+                  company_source: str = "profile", provider: str = "openai",
+                  model: str = "") -> dict:
+    client, default_model = ai_client(provider)
+    model = model or default_model
     limits = {}
-    if provider == "groq":
-        limits["max_tokens"] = GROQ_MAX_TOKENS
-        if model.startswith("openai/gpt-oss"):
-            limits["reasoning_effort"] = "low"
+    # The GPT-5.x reasoning family only accepts the default temperature (1) and
+    # rejects any other value, unlike gpt-4o.
+    if "gpt-5" not in model:
+        limits["temperature"] = 0.6
+    if provider == "openrouter":
+        # GPT-4o writes a resume in ~1,100 tokens; reasoning models (GPT-5.x,
+        # DeepSeek, Claude) also spend tokens thinking, so give them more room.
+        limits["max_tokens"] = OPENROUTER_MAX_TOKENS if "gpt-4o" in model else 8000
+    elif provider == "nvidia":
+        limits["max_tokens"] = NVIDIA_MAX_TOKENS
+        if "nemotron" in model:
+            # Skip Nemotron's reasoning pass: ~3x faster, same resume quality.
+            limits["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
 
-    resp = create_chat(
-        client,
-        model=model,
-        **limits,
-        temperature=0.6,
-        messages=[
-            {"role": "system", "content":
-             "You are an expert resume writer. Follow the user's instructions exactly "
-             "and output plain text only, in the precise structure requested."},
-            {"role": "user", "content": build_prompt(profile, job_description, target_company, company_source)},
-        ],
-    )
-    parsed = parse_resume_text(resp.choices[0].message.content or "")
+    # Fast models occasionally return a reply the parser can't read (no Summary
+    # or Skills section); ask once more rather than saving a broken PDF.
+    for _ in range(2):
+        resp = create_chat(
+            client,
+            model=model,
+            **limits,
+            messages=[
+                {"role": "system", "content":
+                 "You are an expert resume writer. Follow the user's instructions exactly "
+                 "and output plain text only, in the precise structure requested."},
+                {"role": "user", "content": build_prompt(profile, job_description, target_company, company_source)},
+            ],
+        )
+        parsed = parse_resume_text(response_text(resp))
+        if parsed["summary"] and parsed["skills"]:
+            break
     if company_source == "openai":
         problems = invalid_openai_company_names(
             parsed["experience"], profile, target_company)
@@ -762,7 +809,6 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
                 client,
                 model=model,
                 **limits,
-                temperature=0.6,
                 messages=[
                     {"role": "system", "content":
                      "You are an expert resume writer. Follow the user's instructions exactly "
@@ -770,7 +816,7 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
                     {"role": "user", "content": retry_prompt},
                 ],
             )
-            parsed = parse_resume_text(resp.choices[0].message.content or "")
+            parsed = parse_resume_text(response_text(resp))
             problems = invalid_openai_company_names(
                 parsed["experience"], profile, target_company)
             if problems:
@@ -828,11 +874,11 @@ def index():
     if ai_provider not in AI_PROVIDERS:
         ai_provider = "openai"
     print("ai_provider====" + ai_provider)
+    ai_models = {p: chosen_model(p, session.get(f"ai_model_{p}", "")) for p in AI_PROVIDERS}
     return render_template("index.html", profiles=list_profile_names(list_profiles()),
                            active=active, profile=load_profile(active),
                            company_source=company_source, ai_provider=ai_provider,
-                           openai_model=MODEL, gemini_model=GEMINI_MODEL,
-                           groq_model=GROQ_MODEL)
+                           ai_models=ai_models, model_choices=MODEL_CHOICES)
 
 
 @app.route("/profile", methods=["GET", "POST"])
@@ -1257,10 +1303,14 @@ def generate():
     if ai_provider not in AI_PROVIDERS:
         ai_provider = "openai"
     session["ai_provider"] = ai_provider
+    # Each provider has its own Model dropdown (ai_model_<provider>); remember
+    # the pick per provider so switching providers keeps each one's choice.
+    ai_model = chosen_model(ai_provider, request.form.get(f"ai_model_{ai_provider}", "").strip())
+    session[f"ai_model_{ai_provider}"] = ai_model
 
     try:
         tailored = tailor_resume(profile_data, job_description, company, company_source,
-                                 ai_provider)
+                                 ai_provider, ai_model)
         for w in build_warnings(tailored):
             app.logger.warning("Resume parse: %s", w)
         pdf_bytes = render_pdf(profile_data, tailored)

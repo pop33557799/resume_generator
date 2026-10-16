@@ -218,3 +218,36 @@ table.resumes tr.is-rejected:hover { background: var(--rejected-bg-hover); }
   .profile-actions .btn { width: 100%; }
   .profile-actions .inline-form { grid-template-columns: 1fr; }
 }
+
+/* Floating Paste/Clear for jobs copied with the Job Bid Assister extension. */
+.float-actions {
+  position: fixed; right: 20px; bottom: 20px; z-index: 50;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.float-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 104px; padding: 10px 16px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--btn-text); background: var(--btn-bg);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 14px rgba(16,24,40,.18);
+}
+.float-btn:hover { background: var(--btn-hover); }
+.float-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.float-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor;
+                 stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.float-btn-primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+.float-btn-primary:hover { background: var(--blue); filter: brightness(1.08); }
+.float-toast {
+  position: fixed; right: 20px; bottom: 124px; z-index: 50; max-width: 320px;
+  padding: 8px 12px; border-radius: 8px; font-size: 13px;
+  color: var(--flash-success-fg); background: var(--flash-success-bg);
+  box-shadow: 0 4px 14px rgba(16,24,40,.18);
+  opacity: 0; transform: translateY(6px); pointer-events: none;
+  transition: opacity .15s, transform .15s;
+}
+.float-toast.is-visible { opacity: 1; transform: none; }
+.float-toast.is-error { color: var(--flash-error-fg); background: var(--flash-error-bg); }
+@media (max-width: 640px) {
+  .float-actions { right: 12px; bottom: 12px; }
+  .float-toast { right: 12px; bottom: 116px; max-width: calc(100vw - 24px); }
+}

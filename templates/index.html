@@ -69,11 +69,23 @@
   <label for="ai_provider" style="margin-top:6px;display:block"><strong>AI provider</strong>
     <span class="muted">(model used to write the resume)</span>
     <select id="ai_provider" name="ai_provider">
-      <option value="openai" {{ 'selected' if ai_provider == 'openai' }}>OpenAI ({{ openai_model }})</option>
-      <option value="gemini" {{ 'selected' if ai_provider == 'gemini' }}>Gemini ({{ gemini_model }})</option>
-      <option value="groq" {{ 'selected' if ai_provider == 'groq' }}>Groq ({{ groq_model }})</option>
+      <option value="openai" {{ 'selected' if ai_provider == 'openai' }}>OpenAI</option>
+      <option value="nvidia" {{ 'selected' if ai_provider == 'nvidia' }}>NVIDIA</option>
+      <option value="openrouter" {{ 'selected' if ai_provider == 'openrouter' }}>OpenRouter</option>
     </select>
   </label>
+  {# One Model dropdown per provider; only the selected provider's is shown. #}
+  {% for provider, models in model_choices.items() %}
+  <label for="ai_model_{{ provider }}" class="ai-model" data-provider="{{ provider }}"
+         style="margin-top:6px;display:{{ 'block' if provider == ai_provider else 'none' }}"><strong>Model</strong>
+    <span class="muted">(remembered for this provider)</span>
+    <select id="ai_model_{{ provider }}" name="ai_model_{{ provider }}">
+      {% for m in models %}
+      <option value="{{ m }}" {{ 'selected' if m == ai_models[provider] }}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
   <label for="company_source" style="margin-top:6px;display:block"><strong>Experience company names</strong>
     <span class="muted">(choose source for resume experience)</span>
     <select id="company_source" name="company_source">
@@ -104,10 +116,103 @@
   <button type="submit" class="btn btn-primary" id="gen-btn">Generate &amp; save PDF</button>
   <span id="gen-status" class="muted" style="margin-left:12px;display:none">⏳ Generating your resume… saving to the resumes/ folder.</span>
 </form>
+
+{# Floating Paste/Clear for jobs copied with the Job Bid Assister extension:
+   Alt+Q copies the job (title, company, description), Alt+W copies its link. #}
+<div class="float-actions">
+  <button type="button" id="float-paste" class="float-btn float-btn-primary"
+          title="Paste the job copied with the extension (Alt+Q = job, Alt+W = link)">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h6m-6 0a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 0H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2m-6 0v2h6V5"/></svg>
+    Paste
+  </button>
+  <button type="button" id="float-clear" class="float-btn" title="Clear job title, company, link and description">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    Clear
+  </button>
+</div>
+<div id="float-toast" class="float-toast" role="status" aria-live="polite"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+  const providerSelect = document.getElementById('ai_provider');
+  providerSelect.addEventListener('change', () => {
+    document.querySelectorAll('.ai-model').forEach((el) => {
+      el.style.display = el.dataset.provider === providerSelect.value ? 'block' : 'none';
+    });
+  });
+
+  // ---- Floating Paste / Clear (Job Bid Assister extension) ----
+  const jobFields = {
+    title: document.getElementById('job_title'),
+    company: document.getElementById('company_name'),
+    link: document.getElementById('job_link'),
+    description: document.getElementById('job_description'),
+  };
+  const toast = document.getElementById('float-toast');
+
+  function showToast(message, isError) {
+    toast.textContent = message;
+    toast.classList.toggle('is-error', !!isError);
+    toast.classList.add('is-visible');
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => toast.classList.remove('is-visible'), 2500);
+  }
+
+  function setField(el, value) {
+    if (!el) return;
+    el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // The extension's Alt+Q text starts with a short header block (job title on
+  // the first line, company on the second), then a blank line and the job
+  // description. Only treat that first block as a header when it looks like
+  // one, so a plain pasted description doesn't fill title/company with junk.
+  function parseCopiedJob(text) {
+    const blocks = text.split(/\n\s*\n/);
+    const header = blocks[0].split('\n').map((l) => l.trim()).filter(Boolean);
+    const looksLikeHeader = blocks.length > 1 && header.length <= 6 &&
+      header.every((l) => l.length <= 120);
+    return {
+      title: looksLikeHeader ? header[0] || '' : '',
+      company: looksLikeHeader ? header[1] || '' : '',
+      description: text,
+    };
+  }
+
+  document.getElementById('float-paste').addEventListener('click', async () => {
+    let text = '';
+    try {
+      text = (await navigator.clipboard.readText()).trim();
+    } catch (e) {
+      showToast('Clipboard access blocked. Allow clipboard for this page, or use Ctrl+V.', true);
+      return;
+    }
+    if (!text) {
+      showToast('Clipboard is empty. Copy a job with the extension first (Alt+Q).', true);
+      return;
+    }
+    // Alt+W copies just the job's URL.
+    if (/^https?:\/\/\S+$/i.test(text)) {
+      setField(jobFields.link, text);
+      showToast('Job link pasted.');
+      return;
+    }
+    const job = parseCopiedJob(text);
+    setField(jobFields.description, job.description);
+    const filled = ['description'];
+    if (job.title) { setField(jobFields.title, job.title); filled.unshift('title'); }
+    if (job.company) { setField(jobFields.company, job.company); filled.splice(filled.length - 1, 0, 'company'); }
+    showToast('Pasted job ' + filled.join(', ') + '.');
+  });
+
+  document.getElementById('float-clear').addEventListener('click', () => {
+    Object.values(jobFields).forEach((el) => setField(el, ''));
+    jobFields.description.focus();
+    showToast('Job fields cleared.');
+  });
+
   const form = document.getElementById('gen-form');
   const btn = document.getElementById('gen-btn');
   const status = document.getElementById('gen-status');
