@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Prompts — Resume Generator{% endblock %}
+{% block content %}
+<style>
+  .prompt-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0 6px; }
+  .prompt-bar select { width: auto; min-width: 240px; margin-top: 0; }
+  .prompt-text { min-height: 520px; font: .85rem/1.45 ui-monospace, Consolas, monospace; }
+  .prompt-help { margin: 8px 0 0; font-size: .86rem; }
+  .prompt-help code { font-size: .82rem; }
+  .prompt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .prompt-actions .btn { margin-top: 0; }
+</style>
+
+<h1>Prompts</h1>
+
+<form method="get" action="{{ url_for('prompts') }}" class="prompt-bar">
+  <label for="key"><strong>AI model</strong></label>
+  <select id="key" name="key" onchange="this.form.submit()">
+    {% for key, label in choices %}
+    <option value="{{ key }}" {{ 'selected' if key == current }}>{{ label }}{{ ' ✓' if key in saved_keys }}</option>
+    {% endfor %}
+  </select>
+  <span class="muted">{{ status }}</span>
+</form>
+
+<form method="post" action="{{ url_for('save_prompt') }}">
+  <input type="hidden" name="key" value="{{ current }}">
+  <textarea name="prompt" class="prompt-text" spellcheck="false" aria-label="Prompt">{{ prompt_text }}</textarea>
+
+  <details class="prompt-help">
+    <summary class="muted">Placeholders you can use</summary>
+    <ul>
+      {% for token, description in placeholders %}
+      <li><code>{{ token }}</code> — {{ description }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+
+  <div class="prompt-actions">
+    <button type="submit" name="action" value="save" class="btn btn-primary">Save</button>
+    {% if is_custom %}
+    <button type="submit" name="action" value="reset" class="btn btn-remove"
+            onclick="return confirm('Go back to the default prompt for this model?')">Reset to default</button>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

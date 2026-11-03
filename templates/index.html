@@ -86,6 +86,8 @@
     </select>
   </label>
   {% endfor %}
+  <p class="muted prompt-note">Prompt: <span id="prompt-source"></span> ·
+    <a id="prompt-edit-link" href="{{ url_for('prompts') }}">Edit prompt</a></p>
   <label for="company_source" style="margin-top:6px;display:block"><strong>Experience company names</strong>
     <span class="muted">(choose source for resume experience)</span>
     <select id="company_source" name="company_source">
@@ -136,11 +138,31 @@
 {% block scripts %}
 <script>
   const providerSelect = document.getElementById('ai_provider');
+  // Per "provider:model": {source, key} — see resolve_prompt() in app.py.
+  const promptSources = {{ prompt_sources | tojson }};
+  const promptSourceLabels = {
+    'model': 'its own prompt', 'default': 'the Default prompt', 'built-in': 'the built-in prompt',
+  };
+  const promptsUrl = {{ url_for('prompts') | tojson }};
+
+  function updatePromptNote() {
+    const provider = providerSelect.value;
+    const model = document.getElementById('ai_model_' + provider).value;
+    const info = promptSources[provider + ':' + model] || {};
+    document.getElementById('prompt-source').textContent =
+      'this model uses ' + (promptSourceLabels[info.source] || 'the built-in prompt');
+    document.getElementById('prompt-edit-link').href =
+      promptsUrl + (info.key ? '?key=' + encodeURIComponent(info.key) : '');
+  }
+
   providerSelect.addEventListener('change', () => {
     document.querySelectorAll('.ai-model').forEach((el) => {
       el.style.display = el.dataset.provider === providerSelect.value ? 'block' : 'none';
     });
+    updatePromptNote();
   });
+  document.querySelectorAll('.ai-model select').forEach((sel) => sel.addEventListener('change', updatePromptNote));
+  updatePromptNote();
 
   // ---- Floating Paste / Clear (Job Bid Assister extension) ----
   const jobFields = {

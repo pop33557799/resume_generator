@@ -251,3 +251,6 @@ table.resumes tr.is-rejected:hover { background: var(--rejected-bg-hover); }
   .float-actions { right: 12px; bottom: 12px; }
   .float-toast { right: 12px; bottom: 116px; max-width: calc(100vw - 24px); }
 }
+
+/* Generate page: which prompt the selected model uses. */
+.prompt-note { margin: 4px 0 0; font-size: .85rem; }

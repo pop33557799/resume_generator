@@ -21,7 +21,7 @@ import re
 import html
 import tempfile
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -62,8 +62,9 @@ MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-v4.1-flash")
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 # NVIDIA-hosted models often default to a short output cap (~1024 tokens),
-# which would cut the resume off; ask for enough room explicitly.
-NVIDIA_MAX_TOKENS = 8000
+# which would cut the resume off; ask for enough room explicitly. DeepSeek's
+# thinking plus a resume measured up to ~6,200 tokens, so leave headroom.
+NVIDIA_MAX_TOKENS = 12000
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # OpenRouter refuses a request unless the balance covers max_tokens up front, so
@@ -74,12 +75,12 @@ AI_PROVIDERS = ("openai", "nvidia", "openrouter")
 # Models offered in the Generate page's "Model" dropdown, per provider. Each
 # provider's model from .env is the default and is added to its list if missing.
 MODEL_CHOICES = {
-    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-5.6-terra", "gpt-5.6-luna"],
+    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna"],
     "nvidia": ["deepseek-ai/deepseek-v4.1-flash", "nvidia/nemotron-3.5-lightning-30b-a3b",
                "moonshotai/kimi-k3"],
-    "openrouter": ["openai/gpt-4o", "openai/gpt-4o-mini", "openai/gpt-5.6-terra",
-                   "openai/gpt-5.6-luna", "deepseek/deepseek-v4.1-flash",
-                   "anthropic/claude-sonnet-5.5"],
+    "openrouter": ["openai/gpt-4o", "openai/gpt-4o-mini", "openai/gpt-6-luna",
+                   "openai/gpt-5.6-terra", "openai/gpt-5.6-luna",
+                   "deepseek/deepseek-v4.1-flash", "anthropic/claude-sonnet-5.5"],
 }
 DEFAULT_MODELS = {"openai": MODEL, "nvidia": NVIDIA_MODEL, "openrouter": OPENROUTER_MODEL}
 for _provider, _default in DEFAULT_MODELS.items():
@@ -557,15 +558,89 @@ def build_education_text(profile: dict) -> str:
 
 
 def build_prompt(profile: dict, job_description: str, target_company: str = "",
-                 company_source: str = "profile") -> str:
+                 company_source: str = "profile", template: str = PROMPT_TEMPLATE) -> str:
     source_label = "OpenAI" if company_source == "openai" else "Profile"
-    return (PROMPT_TEMPLATE
+    return (template
             .replace("__JOBDESC__", job_description)
             .replace("__TARGETCOMPANY__", target_company or "Not provided; infer it from the job description if present")
             .replace("__COMPANYSOURCE__", source_label)
             .replace("__YOE__", str(years_of_experience(profile)))
             .replace("__COMPANIESTEXT__", build_companies_text(profile))
             .replace("__EDUCATIONTEXT__", build_education_text(profile)))
+
+
+# ---------------------------------------------------------------------------
+# Per-model prompts (edited on the Prompts page)
+# ---------------------------------------------------------------------------
+# prompts.json maps "default" or "model:<name>" to {"system", "prompt",
+# "updated"}. A model uses its own prompt, else the "default" one, else the
+# built-in SYSTEM_PROMPT + PROMPT_TEMPLATE. Prompts belong to the AI model, not
+# the provider: OpenAI's "gpt-4o" and OpenRouter's "openai/gpt-4o" share one.
+
+PROMPTS_PATH = BASE_DIR / "prompts.json"
+DEFAULT_PROMPT_KEY = "default"
+SYSTEM_PROMPT = ("You are an expert resume writer. Follow the user's instructions exactly "
+                 "and output plain text only, in the precise structure requested.")
+# Shown on the Prompts page; build_prompt() fills these in.
+PROMPT_PLACEHOLDERS = [
+    ("__JOBDESC__", "The job description pasted on the Generate page"),
+    ("__TARGETCOMPANY__", "The company name typed on the Generate page"),
+    ("__COMPANYSOURCE__", "\"Profile\" or \"OpenAI\" (the company-names choice)"),
+    ("__YOE__", "Years of experience, from the profile's dates"),
+    ("__COMPANIESTEXT__", "One line per profile company: name, location, dates"),
+    ("__EDUCATIONTEXT__", "One line per profile school: name, location, dates"),
+]
+
+
+def model_name(model: str) -> str:
+    """The AI model without its provider prefix: "openai/gpt-4o" -> "gpt-4o",
+    "deepseek-ai/deepseek-v4.1-flash" -> "deepseek-v4.1-flash"."""
+    return model.rsplit("/", 1)[-1].lstrip("~")
+
+
+def prompt_key(provider: str, model: str) -> str:
+    return f"model:{model_name(model)}"
+
+
+def prompt_models() -> dict:
+    """{prompt key: [(provider, model id), ...]} for every offered model, so a
+    model reachable through several providers appears once."""
+    groups = {}
+    for provider, models in MODEL_CHOICES.items():
+        for m in models:
+            groups.setdefault(prompt_key(provider, m), []).append((provider, m))
+    return groups
+
+
+def prompt_keys() -> list:
+    """Every key the Prompts page can edit: the default, then each model."""
+    return [DEFAULT_PROMPT_KEY] + list(prompt_models())
+
+
+def load_prompts() -> dict:
+    try:
+        data = json.loads(PROMPTS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_prompts(prompts: dict) -> None:
+    # Write to a temp file first so a crash can't leave a half-written file.
+    tmp = PROMPTS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, PROMPTS_PATH)
+
+
+def resolve_prompt(provider: str, model: str, prompts: dict = None) -> tuple:
+    """(system message, prompt template, source) for a model, where source is
+    "model", "default" or "built-in"."""
+    prompts = load_prompts() if prompts is None else prompts
+    for key, source in ((prompt_key(provider, model), "model"), (DEFAULT_PROMPT_KEY, "default")):
+        entry = prompts.get(key) or {}
+        if entry.get("prompt", "").strip():
+            return entry.get("system", "").strip() or SYSTEM_PROMPT, entry["prompt"], source
+    return SYSTEM_PROMPT, PROMPT_TEMPLATE, "built-in"
 
 
 # ---------------------------------------------------------------------------
@@ -759,15 +834,20 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
                   model: str = "") -> dict:
     client, default_model = ai_client(provider)
     model = model or default_model
+    system_prompt, template, _ = resolve_prompt(provider, model)
     limits = {}
-    # The GPT-5.x reasoning family only accepts the default temperature (1) and
-    # rejects any other value, unlike gpt-4o.
-    if "gpt-5" not in model:
+    # The GPT-5.x/6.x reasoning families only accept the default temperature (1)
+    # and reject any other value, unlike gpt-4o.
+    if not re.search(r"gpt-[5-9]", model):
         limits["temperature"] = 0.6
     if provider == "openrouter":
-        # GPT-4o writes a resume in ~1,100 tokens; reasoning models (GPT-5.x,
-        # DeepSeek, Claude) also spend tokens thinking, so give them more room.
-        limits["max_tokens"] = OPENROUTER_MAX_TOKENS if "gpt-4o" in model else 8000
+        # GPT-4o writes a resume in ~1,100 tokens; reasoning models (GPT-5.x/6.x,
+        # Claude) also spend tokens thinking, so give them more room — DeepSeek
+        # thinks the longest (measured up to ~6,200 tokens incl. the resume).
+        if "gpt-4o" in model:
+            limits["max_tokens"] = OPENROUTER_MAX_TOKENS
+        else:
+            limits["max_tokens"] = 12000 if "deepseek" in model else 8000
     elif provider == "nvidia":
         limits["max_tokens"] = NVIDIA_MAX_TOKENS
         if "nemotron" in model:
@@ -782,10 +862,9 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
             model=model,
             **limits,
             messages=[
-                {"role": "system", "content":
-                 "You are an expert resume writer. Follow the user's instructions exactly "
-                 "and output plain text only, in the precise structure requested."},
-                {"role": "user", "content": build_prompt(profile, job_description, target_company, company_source)},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": build_prompt(profile, job_description, target_company,
+                                                         company_source, template)},
             ],
         )
         parsed = parse_resume_text(response_text(resp))
@@ -796,7 +875,7 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
             parsed["experience"], profile, target_company)
         if problems:
             retry_prompt = (
-                build_prompt(profile, job_description, target_company, company_source)
+                build_prompt(profile, job_description, target_company, company_source, template)
                 + "\n\nSTRICT CORRECTION REQUIRED:\n"
                 + "The previous company names were invalid because: "
                 + "; ".join(problems)
@@ -810,9 +889,7 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
                 model=model,
                 **limits,
                 messages=[
-                    {"role": "system", "content":
-                     "You are an expert resume writer. Follow the user's instructions exactly "
-                     "and output plain text only, in the precise structure requested."},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": retry_prompt},
                 ],
             )
@@ -875,10 +952,17 @@ def index():
         ai_provider = "openai"
     print("ai_provider====" + ai_provider)
     ai_models = {p: chosen_model(p, session.get(f"ai_model_{p}", "")) for p in AI_PROVIDERS}
+    saved_prompts = load_prompts()
+    # For each "provider:model": which prompt it uses ("model" / "default" /
+    # "built-in") and its Prompts-page key, shown under the Model dropdown.
+    prompt_sources = {f"{p}:{m}": {"source": resolve_prompt(p, m, saved_prompts)[2],
+                                   "key": prompt_key(p, m)}
+                      for p, models in MODEL_CHOICES.items() for m in models}
     return render_template("index.html", profiles=list_profile_names(list_profiles()),
                            active=active, profile=load_profile(active),
                            company_source=company_source, ai_provider=ai_provider,
-                           ai_models=ai_models, model_choices=MODEL_CHOICES)
+                           ai_models=ai_models, model_choices=MODEL_CHOICES,
+                           prompt_sources=prompt_sources)
 
 
 @app.route("/profile", methods=["GET", "POST"])
@@ -1277,6 +1361,63 @@ def stats():
         current_name=current_name)
 
 
+@app.route("/prompts")
+def prompts():
+    saved = load_prompts()
+    keys = prompt_keys()
+    current = request.args.get("key", "")
+    if current not in keys:
+        current = DEFAULT_PROMPT_KEY
+
+    choices = [(k, "Default (all models)" if k == DEFAULT_PROMPT_KEY else k.split(":", 1)[1])
+               for k in keys]
+    if current in saved:
+        status = "Custom prompt"
+    elif current == DEFAULT_PROMPT_KEY:
+        status = "Built-in prompt"
+    else:
+        status = "Uses the default prompt"
+
+    # Show the prompt this entry uses now, so editing starts from it.
+    if current in saved:
+        prompt_text = saved[current].get("prompt", "")
+    elif current == DEFAULT_PROMPT_KEY:
+        prompt_text = PROMPT_TEMPLATE
+    else:
+        provider, model = prompt_models()[current][0]
+        prompt_text = resolve_prompt(provider, model, saved)[1]
+
+    return render_template("prompts.html", choices=choices, current=current,
+                           saved_keys=set(saved), status=status, prompt_text=prompt_text,
+                           is_custom=current in saved, placeholders=PROMPT_PLACEHOLDERS)
+
+
+@app.route("/prompts/save", methods=["POST"])
+def save_prompt():
+    key = request.form.get("key", "")
+    if key not in prompt_keys():
+        abort(400)
+    saved = load_prompts()
+    if request.form.get("action") == "reset":
+        saved.pop(key, None)
+        save_prompts(saved)
+        flash("Reset to the default prompt.", "success")
+        return redirect(url_for("prompts", key=key))
+
+    prompt_text = request.form.get("prompt", "").replace("\r\n", "\n")
+    if not prompt_text.strip():
+        flash("The prompt is empty — nothing saved.", "error")
+        return redirect(url_for("prompts", key=key))
+    saved[key] = {"prompt": prompt_text, "updated": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    save_prompts(saved)
+    if "__JOBDESC__" in prompt_text:
+        flash("Prompt saved.", "success")
+    else:
+        flash("Prompt saved — but it has no __JOBDESC__, so the job description won't be sent.",
+              "error")
+    return redirect(url_for("prompts", key=key))
+
+
 @app.route("/generate", methods=["POST"])
 def generate():
     job_description = request.form.get("job_description", "").strip()
@@ -1484,4 +1625,5 @@ def resume_file(filename):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000, use_reloader=False)
+    # host="0.0.0.0" listens on all interfaces so the app is reachable via the LAN IP, not just 127.0.0.1.
+    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", 5000)), use_reloader=False)
