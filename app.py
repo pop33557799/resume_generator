@@ -10,7 +10,7 @@ Model (per the reference prompt):
     a JD-appropriate TITLE, a one-line DESCRIPTION, and quantified achievement bullets.
     It also picks a DEGREE name that fits the job.
   - Dates, locations, and the school are taken VERBATIM from your profile. Company
-    names can come from the profile or from AI-generated mid-sized employers.
+    names can come from the profile or from AI-chosen real, U.S.-based employers.
   - Output is rendered to the Bitter/Roboto PDF format defined in resume_format.py.
 """
 
@@ -441,7 +441,7 @@ For each company, use this EXACT structured format (one field per line):
 COMPANY: Company Name, Remote
 DATES: Month YYYY – Month YYYY (e.g., "February 2022 – January 2024", "March 2019 – May 2022". Always use full month name, NOT numeric format like "2024-02")
 CRITICAL — DATES must be taken VERBATIM from the company list provided below. Use the exact From and To dates as given. Do NOT invent, round, or change any date. If the To value is "Present" or empty, write "Present".
-DESCRIPTION: One-sentence company description that highlights work relevant to the job description. Frame the company's work using keywords and domain language from the job posting. For example, if the job is about "data engineering", describe the company as "A technology firm specializing in enterprise data platform solutions and cloud-based analytics infrastructure" — not just "A software company". Make it sound like every company the candidate worked at was doing work closely related to the target job.
+DESCRIPTION: One-sentence company description that highlights the parts of the company's actual business most relevant to the job description. Frame the company's real work using keywords and domain language from the job posting, but never invent products, services, or lines of business. For example, if the job is about "data engineering", describe the company as "A technology firm specializing in enterprise data platform solutions and cloud-based analytics infrastructure" — not just "A software company".
 TITLE: Detailed Job Title
 - bullet point 1
 - bullet point 2
@@ -470,16 +470,22 @@ Example of GOOD bullets:
 - Built a medallion architecture (Bronze/Silver/Gold) in <<Microsoft Fabric>> Lakehouse, enabling self-service analytics for 50 business users and reducing report generation from 4 hours to 15 minutes.
 
 OVERRIDE — use this company-name rule instead of any earlier company-name rule:
-- For OpenAI company-name source, choose a different employer company name for each experience slot below.
+- For OpenAI company-name source, choose a different REAL, VERIFIABLE employer company for each experience slot below. Never invent, blend, or alter a company name.
+- Each company must actually exist and be headquartered in the United States.
+- Each company must be easy to verify: it has an official website and a LinkedIn company page, so a Google search for the exact name finds it right away. A Wikipedia article is NOT required.
+- Each company must have been operating during that slot's full date range (founded before the From date, not shut down or acquired before the To date).
 - The company names must fit the job description's industry/domain.
-- Choose believable mid-sized companies: not famous, not Fortune 500, not Big Tech, not tiny startups, and not household names.
+- Each company must be a lesser-known, small-to-mid-sized company: roughly 50 to 1,000 employees, usually privately held, respected inside its niche but not a household name. Do NOT pick Fortune 500 companies, large publicly traded companies, unicorn startups, or any brand an average person would recognize (for example Google, Amazon, Apple, Meta, Microsoft, Netflix, Salesforce, Oracle, IBM, Adobe, Uber, Airbnb, Stripe, Shopify, Zillow, Chewy, Paycom). Also avoid one-person shops and brand-new startups.
+- Use these as a guide — good places to find such companies: regional software and IT services firms, niche B2B SaaS vendors, digital agencies, consultancies, and specialized technology vendors in the job's industry (for example a regional healthcare IT vendor for a healthcare role, or a logistics software firm for a supply-chain role).
+- Write each company's exact official name and spelling as shown on its website and LinkedIn page. Do not add or drop words like "Solutions", "Technologies", or "Group" unless they are part of the official name.
+- Only pick a company you are certain is real. If you are unsure whether a smaller company exists, pick a different small-to-mid-sized company you are certain about — never fall back to a large, well-known brand.
+- For a real company, the DESCRIPTION must be factually accurate about what that company actually does; emphasize the parts of its real business related to the job, but never make up products or lines of business.
 - Do NOT use the hiring company or target company from the job description.
 - Do NOT use the target/hiring company listed above.
 - Do NOT use any company name that appears in the job description.
 - Do NOT use generic experience slot labels as final company names.
-- If the selected company-name source is OpenAI, do NOT use the profile company names as final COMPANY names; generate replacement employer names.
+- If the selected company-name source is OpenAI, do NOT use the profile company names as final COMPANY names; choose replacement real employers that follow the rules above.
 - If the selected company-name source is Profile, keep the profile company names in the COMPANY fields.
-- Company names should sound like real mid-market firms in the field, but should be understated and not attention-grabbing.
 - Use the exact number of experience slots below. Keep the dates and order from those slots.
 - Output exactly the company/experience count shown below. Do not add, skip, or merge experience blocks.
 
@@ -763,7 +769,7 @@ def clean_company_name(name: str) -> str:
 
 def invalid_openai_company_names(parsed_exp: list, profile: dict,
                                  target_company: str = "") -> list:
-    """Problems that make OpenAI-generated company names unsafe to use."""
+    """Problems that make AI-chosen company names unsafe to use."""
     problems = []
     profile_names = {_norm_company(c.get("name", "")) for c in profile["companies"]}
     profile_names.discard("")
@@ -882,7 +888,10 @@ def tailor_resume(profile: dict, job_description: str, target_company: str = "",
                 + ". Generate the full resume again. Use exactly "
                 + str(len(profile["companies"]))
                 + " experience/company blocks. Do not use profile company names, "
-                + "generic slot labels, duplicate company names, or the target/hiring company."
+                + "generic slot labels, duplicate company names, or the target/hiring company. "
+                + "Every company must be a real, verifiable, U.S.-headquartered, lesser-known "
+                + "small-to-mid-sized company (not a large or household-name brand) "
+                + "written with its exact official name — never an invented name."
             )
             resp = create_chat(
                 client,
